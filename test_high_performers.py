@@ -94,3 +94,24 @@ def test_compute_stats_returns_correct_avg_max_min():
     assert stats["avg"] == pytest.approx(20.0)
     assert stats["max"] == pytest.approx(30.0)
     assert stats["min"] == pytest.approx(10.0)
+
+
+# ── 테스트 6: ROE 구간 분포 ───────────────────────────────────────────────────
+
+def test_compute_roe_distribution_returns_correct_bucket_counts():
+    finder = make_finder([], threshold=10.0)
+    roe_col = "2025/12(E)_ROE(%)"
+    df = pd.DataFrame({
+        "종목코드": ["A", "B", "C", "D", "E"],
+        "종목명":   ["가", "나", "다", "라", "마"],
+        "시장":     ["KOSPI"] * 5,
+        roe_col:   [12.0, 17.0, 25.0, 45.0, 60.0],
+    })
+
+    dist = finder.compute_roe_distribution(df)
+
+    assert dist["10-15%"] == 1
+    assert dist["15-20%"] == 1
+    assert dist["20-30%"] == 1
+    assert dist["30-50%"] == 1
+    assert dist["50%+"]   == 1
