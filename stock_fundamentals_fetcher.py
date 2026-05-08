@@ -60,35 +60,51 @@ class StockFundamentalsFetcher:
     def find_equity(self, soup, stock_code: str) -> float:
         """
         Financial Highlight 표(IFRS연결 Annual+Net Quarter)에서
-        작년 12월(current_year-1 / 12) 지배주주지분을 억원 → 원으로 변환하여 반환.
+        Annual 섹션의 가장 최신 실제 연도(YYYY/MM) 지배주주지분을 억원 → 원으로 변환.
 
         FnGuide 테이블 구조:
-          rows[0]: IFRS(연결) | Annual | Net Quarter  (섹션 헤더)
-          rows[1]: 2023/12 | 2024/12 | 2025/12 | ...  (연도 헤더, 레이블 셀 없음)
+          rows[0]: IFRS(연결) colspan=1 | Annual colspan=N | Net Quarter colspan=M
+          rows[1]: 2023/12 | 2024/12 | 2025/12 | (E)... | 2025/06 | ...
           data rows: 항목명 | 값1 | 값2 | ...  (셀[0]=항목, 셀[1+]=연도별 값)
           → 연도 헤더 index i → 데이터 셀 index i+1
-        """
-        last_year = self.current_year - 1
-        target_col_text = f"{last_year}/12"
 
+        비12월 회계연도(2월, 3월 등) 종목도 올바르게 처리.
+        Annual 섹션에서 마지막 YYYY/MM 형식 셀 = 최신 실제 연간 실적.
+        """
         for table in soup.find_all('table'):
             rows = table.find_all('tr')
             if len(rows) < 3:
                 continue
 
-            header_texts = [c.get_text(strip=True) for c in rows[0].find_all(['td', 'th'])]
+            header_cells = rows[0].find_all(['td', 'th'])
+            header_texts = [c.get_text(strip=True) for c in header_cells]
             if 'IFRS(연결)' not in header_texts or 'Annual' not in header_texts:
                 continue
 
-            # 연도 헤더 행 (rows[1]): 레이블 셀 없이 연도만 나열
-            year_cells = [c.get_text(strip=True) for c in rows[1].find_all(['td', 'th'])]
-            try:
-                year_idx = year_cells.index(target_col_text)
-            except ValueError:
+            # Annual 섹션 크기를 colspan으로 결정
+            annual_count = 0
+            for cell in header_cells:
+                if cell.get_text(strip=True) == 'Annual':
+                    annual_count = int(cell.get('colspan', 1))
+                    break
+
+            # Annual 섹션 연도 셀에서 YYYY/MM 형식만 추출 (E/P 표시 셀 제외)
+            all_year_cells = rows[1].find_all(['td', 'th'])
+            annual_year_cells = all_year_cells[:annual_count]
+            actual_years = [
+                (i, c.get_text(strip=True))
+                for i, c in enumerate(annual_year_cells)
+                if re.match(r'^\d{4}/\d{2}$', c.get_text(strip=True))
+            ]
+
+            if not actual_years:
                 continue
 
-            # 데이터 행은 셀[0]이 항목명이므로 +1 오프셋
-            data_col_idx = year_idx + 1
+            # 마지막 실제 연도 = 최신 연간 실적
+            year_idx, year_text = actual_years[-1]
+            data_col_idx = year_idx + 1  # 데이터행 셀[0]이 항목명이므로 +1
+
+            logger.info(f"{stock_code}: 사용할 연간 컬럼 = {year_text} (데이터 idx={data_col_idx})")
 
             for row in rows[2:]:
                 cells = row.find_all(['td', 'th'])
@@ -99,7 +115,7 @@ class StockFundamentalsFetcher:
                         val_str = cells[data_col_idx].get_text(strip=True).replace(',', '')
                         if val_str and re.match(r'^-?\d+(\.\d+)?$', val_str):
                             return float(val_str) * 1e8  # 억원 → 원
-            break  # 테이블 찾았으면 루프 종료
+            break
 
         logger.warning(f"{stock_code}: 지배주주지분 값을 찾지 못했습니다.")
         return 0.0
@@ -120,7 +136,8 @@ class StockFundamentalsFetcher:
         return 0
 
     def find_treasury_shares(self, soup) -> int:
-        """주주구분 현황 표에서 자기주식(자사주+자사주신탁) 보통주 반환"""
+        """주주구분 현황 표에서 자기주식(자사주+자사주신탁) 보통주 반환.
+        자기주식 행이 없으면 0 반환 (자기주식 없는 종목은 정상)."""
         for table in soup.find_all('table'):
             for row in table.find_all('tr'):
                 cells = row.find_all(['td', 'th'])
@@ -130,7 +147,6 @@ class StockFundamentalsFetcher:
                     val = cells[2].get_text(strip=True).replace(',', '')
                     if val.isdigit():
                         return int(val)
-        logger.warning("자기주식을 찾지 못했습니다.")
         return 0
 
     # ── 단일 종목 수집 ─────────────────────────────────────────────────────────

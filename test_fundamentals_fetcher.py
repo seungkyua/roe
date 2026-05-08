@@ -70,19 +70,63 @@ def make_shareholder_soup(treasury: int):
 
 # ── 테스트 1: find_equity ─────────────────────────────────────────────────────
 
+def make_financial_highlight_soup_with_colspan(year_to_equity: dict, annual_count: int = None):
+    """
+    FnGuide Financial Highlight 테이블 (colspan 포함).
+    rows[0]: IFRS(연결) colspan=1 | Annual colspan=N | Net Quarter colspan=4
+    rows[1]: 연도 헤더
+    """
+    years = sorted(year_to_equity.keys())
+    if annual_count is None:
+        annual_count = len(years)
+    year_header = "".join(f"<th>{y}</th>" for y in years)
+    equity_values = "".join(f"<td>{year_to_equity[y]:,}</td>" for y in years)
+    padding = "".join("<tr><td></td></tr>" for _ in range(20))
+    html = f"""
+    <html><body>
+    <table class="us_table_ty1">
+      <tr>
+        <th colspan="1">IFRS(연결)</th>
+        <th colspan="{annual_count}">Annual</th>
+        <th colspan="4">Net Quarter</th>
+      </tr>
+      <tr>{year_header}</tr>
+      <tr><td>지배주주지분</td>{equity_values}</tr>
+      {padding}
+    </table>
+    </body></html>
+    """
+    return BeautifulSoup(html, 'html.parser')
+
+
 def test_find_equity_returns_last_year_december_value_in_won():
-    """작년 12월 지배주주지분을 억원 → 원으로 변환하여 반환"""
+    """12월 결산 종목: 작년 12월 지배주주지분을 억원 → 원으로 변환하여 반환"""
     fetcher = make_fetcher(year=2026)
-    # current_year=2026 → last_year=2025 → '2025/12' 컬럼 찾기
-    soup = make_financial_highlight_soup({
+    soup = make_financial_highlight_soup_with_colspan({
         '2023/12': 3_532_338,
         '2024/12': 3_916_876,
-        '2025/12': 4_243_133,   # ← 이 값을 가져와야 함
-    })
+        '2025/12': 4_243_133,   # ← Annual 마지막 실제 연도
+    }, annual_count=3)
 
     equity = fetcher.find_equity(soup, '005930')
 
     assert equity == 4_243_133 * 1e8
+
+
+def test_find_equity_returns_latest_annual_for_non_december_fiscal_year():
+    """2월 결산 종목(950170 유형): Annual 섹션 마지막 실제 연도 컬럼 값을 반환"""
+    fetcher = make_fetcher(year=2026)
+    # '(P)...' 셀은 잠정실적 표시이므로 제외, '2025/02'가 최신 실제 값
+    soup = make_financial_highlight_soup_with_colspan({
+        '2023/02': 697,
+        '2024/02': 858,
+        '2025/02': 1_832,   # ← 이 값을 가져와야 함
+        '(P) : Provisional잠정실적2026/02(P)': 1_897,
+    }, annual_count=4)
+
+    equity = fetcher.find_equity(soup, '950170')
+
+    assert equity == 1_832 * 1e8
 
 
 def test_find_issued_shares_returns_common_stock_count():
@@ -105,11 +149,29 @@ def test_find_treasury_shares_returns_treasury_common_stock():
     assert treasury == 82_086_705
 
 
+def test_find_treasury_shares_returns_zero_silently_when_no_treasury_row():
+    """자기주식 행이 없으면 경고 없이 0을 반환"""
+    fetcher = make_fetcher()
+    # 자기주식 행이 없는 주주구분 테이블
+    html = """<html><body>
+    <table class="us_table_ty1">
+      <tr><th>주주구분</th><th>대표주주수</th><th>보통주</th><th>지분율</th></tr>
+      <tr><td>최대주주등</td><td>1</td><td>1,000,000</td><td>50.00</td></tr>
+    </table>
+    </body></html>"""
+    soup = BeautifulSoup(html, 'html.parser')
+
+    treasury = fetcher.find_treasury_shares(soup)
+
+    assert treasury == 0
+
+
 # ── 테스트 4: fetch() 통합 ────────────────────────────────────────────────────
 
 def make_combined_soup(equity_map, issued_common, issued_preferred, treasury):
-    """세 테이블을 하나의 HTML로 결합한 soup"""
+    """세 테이블을 하나의 HTML로 결합한 soup (실제 FnGuide 구조: colspan 포함)"""
     years = sorted(equity_map.keys())
+    annual_count = len(years)
     year_header = "".join(f"<th>{y}</th>" for y in years)
     equity_values = "".join(f"<td>{equity_map[y]:,}</td>" for y in years)
     padding = "".join("<tr><td></td></tr>" for _ in range(20))
@@ -124,9 +186,13 @@ def make_combined_soup(equity_map, issued_common, issued_preferred, treasury):
       <tr><th>주주구분</th><th>대표주주수</th><th>보통주</th><th>지분율</th></tr>
       <tr><td>자기주식 (자사주+자사주신탁)</td><td>1</td><td>{treasury:,}</td><td>1.40</td></tr>
     </table>
-    <!-- Financial Highlight -->
+    <!-- Financial Highlight (colspan으로 Annual 경계 명시) -->
     <table class="us_table_ty1">
-      <tr><th>IFRS(연결)</th><th>Annual</th><th>Net Quarter</th></tr>
+      <tr>
+        <th colspan="1">IFRS(연결)</th>
+        <th colspan="{annual_count}">Annual</th>
+        <th colspan="4">Net Quarter</th>
+      </tr>
       <tr>{year_header}</tr>
       <tr><td>지배주주지분</td>{equity_values}</tr>
       {padding}
