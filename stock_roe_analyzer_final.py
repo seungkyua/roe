@@ -91,6 +91,14 @@ class StockROEAnalyzerFinal:
         
         return None
     
+    def find_target_year_column(self, header_cells):
+        """헤더 셀 텍스트 리스트에서 target_year를 포함하는 컬럼 인덱스 반환. 없으면 None."""
+        year_str = str(self.target_year)
+        for idx, cell in enumerate(header_cells):
+            if year_str in cell:
+                return idx
+        return None
+
     def find_roe_dynamic_year(self, soup, stock_code):
         """동적 연도 기반 ROE 값 찾기"""
         logger.info(f"종목코드 {stock_code}의 {self.target_period} ROE 값 검색 중...")
