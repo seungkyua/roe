@@ -12,6 +12,10 @@
 - [x] merge_inputs()가 한쪽에만 있는 종목은 제외한다
 - [x] SRIMPipeline.run()이 병합 데이터에 S-RIM 계산을 적용한 결과를 반환한다
 
+### discount_rate 자동 조회 (s_rim_pipeline.py)
+- [ ] fetch_discount_rate()가 KIS Rating에서 BBB- 5년 금리를 float로 반환한다
+- [ ] SRIMPipeline이 discount_rate 인자 없이 자동 조회한 값을 사용한다
+
 ### StockFundamentalsFetcher (stock_fundamentals_fetcher.py)
 - [x] find_equity()가 Financial Highlight 표에서 작년 12월 지배주주지분을 원 단위로 반환한다
 - [x] find_issued_shares()가 시세현황 표에서 보통주 발행주식수를 반환한다

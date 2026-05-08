@@ -1,7 +1,8 @@
 import pytest
 import pandas as pd
+from bs4 import BeautifulSoup
 from s_rim import SRIMCalculator
-from s_rim_pipeline import merge_inputs, SRIMPipeline
+from s_rim_pipeline import merge_inputs, SRIMPipeline, fetch_discount_rate
 
 
 # ── SRIMCalculator ────────────────────────────────────────────────────────────
@@ -102,8 +103,9 @@ def test_merge_inputs_excludes_unmatched_stocks():
 
 # ── SRIMPipeline.run() ────────────────────────────────────────────────────────
 
-def test_load_normalizes_roe_column_name(tmp_path):
+def test_load_normalizes_roe_column_name(tmp_path, monkeypatch):
     """ROE CSV의 YYYY/12(E)_ROE(%) 컬럼이 ROE(%)로 정규화된다"""
+    monkeypatch.setattr('s_rim_pipeline.fetch_discount_rate', lambda: 9.24)
     roe_csv = tmp_path / "roe.csv"
     fundamentals_csv = tmp_path / "fundamentals.csv"
 
@@ -115,7 +117,7 @@ def test_load_normalizes_roe_column_name(tmp_path):
         {'종목코드': '005930', '자본총계(원)': 4_243_133 * 1e8, '총주식수': 5_764_191_903},
     ]).to_csv(fundamentals_csv, index=False, encoding='utf-8-sig')
 
-    pipeline = SRIMPipeline(9.24, str(roe_csv), str(fundamentals_csv))
+    pipeline = SRIMPipeline(str(roe_csv), str(fundamentals_csv))
     merged = pipeline.load()
 
     assert 'ROE(%)' in merged.columns
@@ -123,8 +125,9 @@ def test_load_normalizes_roe_column_name(tmp_path):
     assert merged.iloc[0]['ROE(%)'] == pytest.approx(10.85)
 
 
-def test_pipeline_run_applies_srim_to_merged_data(tmp_path):
+def test_pipeline_run_applies_srim_to_merged_data(tmp_path, monkeypatch):
     """run()이 병합 데이터 전체에 S-RIM 계산을 적용한 DataFrame을 반환한다"""
+    monkeypatch.setattr('s_rim_pipeline.fetch_discount_rate', lambda: 9.24)
     roe_csv = tmp_path / "roe.csv"
     fundamentals_csv = tmp_path / "fundamentals.csv"
 
@@ -137,15 +140,82 @@ def test_pipeline_run_applies_srim_to_merged_data(tmp_path):
         {'종목코드': '005930', '자본총계(원)': 300_000_000_000, '총주식수': 5_000_000},
     ]).to_csv(fundamentals_csv, index=False, encoding='utf-8-sig')
 
-    pipeline = SRIMPipeline(
-        discount_rate=9.24,
-        roe_csv=str(roe_csv),
-        fundamentals_csv=str(fundamentals_csv),
-    )
+    pipeline = SRIMPipeline(str(roe_csv), str(fundamentals_csv))
     result = pipeline.run()
 
     assert len(result) == 1
     assert result.iloc[0]['종목코드'] == '005930'
     assert '적정주가(S-RIM)' in result.columns
     assert '보수적주가(S-RIM)' in result.columns
+    assert result.iloc[0]['적정주가(S-RIM)'] > 0
+
+
+# ── fetch_discount_rate ───────────────────────────────────────────────────────
+
+def make_kis_rating_soup(bbb_minus_5y: float) -> BeautifulSoup:
+    """KIS Rating 등급별 금리스프레드 테이블 모킹 (테이블[0] 구조)"""
+    html = f"""<html><body>
+    <table>
+      <tr><th>구분</th><th>3월</th><th>6월</th><th>9월</th><th>1년</th>
+          <th>1년6월</th><th>2년</th><th>3년</th><th>5년</th></tr>
+      <tr><td>국고채</td><td>2.62</td><td>2.70</td><td>2.80</td><td>3.01</td>
+          <td>3.25</td><td>3.45</td><td>3.56</td><td>3.74</td></tr>
+      <tr><td>AAA</td><td>2.88</td><td>2.96</td><td>3.11</td><td>3.30</td>
+          <td>3.62</td><td>3.89</td><td>4.03</td><td>4.09</td></tr>
+      <tr><td>AA+</td><td>2.90</td><td>3.00</td><td>3.15</td><td>3.35</td>
+          <td>3.68</td><td>3.97</td><td>4.10</td><td>4.15</td></tr>
+      <tr><td>AA</td><td>2.93</td><td>3.03</td><td>3.20</td><td>3.40</td>
+          <td>3.75</td><td>4.05</td><td>4.18</td><td>4.23</td></tr>
+      <tr><td>AA-</td><td>2.97</td><td>3.09</td><td>3.27</td><td>3.47</td>
+          <td>3.84</td><td>4.15</td><td>4.30</td><td>4.35</td></tr>
+      <tr><td>A+</td><td>3.07</td><td>3.24</td><td>3.45</td><td>3.66</td>
+          <td>4.08</td><td>4.43</td><td>4.62</td><td>4.71</td></tr>
+      <tr><td>A</td><td>3.19</td><td>3.39</td><td>3.63</td><td>3.86</td>
+          <td>4.31</td><td>4.70</td><td>4.93</td><td>5.05</td></tr>
+      <tr><td>A-</td><td>3.34</td><td>3.59</td><td>3.87</td><td>4.13</td>
+          <td>4.61</td><td>5.05</td><td>5.35</td><td>5.52</td></tr>
+      <tr><td>BBB+</td><td>3.74</td><td>4.21</td><td>4.76</td><td>5.10</td>
+          <td>5.98</td><td>6.90</td><td>7.60</td><td>7.95</td></tr>
+      <tr><td>BBB</td><td>4.12</td><td>4.72</td><td>5.34</td><td>5.77</td>
+          <td>6.79</td><td>7.84</td><td>8.64</td><td>8.99</td></tr>
+      <tr><td>BBB-</td><td>4.79</td><td>5.51</td><td>6.28</td><td>6.77</td>
+          <td>7.91</td><td>9.01</td><td>10.02</td><td>{bbb_minus_5y}</td></tr>
+    </table>
+    </body></html>"""
+    return BeautifulSoup(html, 'html.parser')
+
+
+def test_fetch_discount_rate_returns_bbb_minus_5y_rate(monkeypatch):
+    """KIS Rating 페이지에서 BBB- 5년 금리를 float로 반환한다"""
+    mock_soup = make_kis_rating_soup(bbb_minus_5y=10.41)
+
+    def mock_get_kis_page():
+        return mock_soup
+
+    monkeypatch.setattr('s_rim_pipeline._get_kis_rating_page', mock_get_kis_page)
+
+    rate = fetch_discount_rate()
+
+    assert rate == pytest.approx(10.41)
+
+
+def test_pipeline_uses_auto_fetched_discount_rate(tmp_path, monkeypatch):
+    """discount_rate 없이 생성한 SRIMPipeline이 자동 조회한 금리를 사용한다"""
+    roe_csv = tmp_path / "roe.csv"
+    fundamentals_csv = tmp_path / "fundamentals.csv"
+
+    pd.DataFrame([
+        {'종목코드': '005930', '종목명': '삼성전자', '시장': 'KOSPI', 'ROE(%)': 12.5},
+    ]).to_csv(roe_csv, index=False, encoding='utf-8-sig')
+
+    pd.DataFrame([
+        {'종목코드': '005930', '자본총계(원)': 300_000_000_000, '총주식수': 5_000_000},
+    ]).to_csv(fundamentals_csv, index=False, encoding='utf-8-sig')
+
+    monkeypatch.setattr('s_rim_pipeline.fetch_discount_rate', lambda: 10.41)
+
+    pipeline = SRIMPipeline(str(roe_csv), str(fundamentals_csv))
+    result = pipeline.run()
+
+    assert result.iloc[0]['할인율(%)'] == pytest.approx(10.41)
     assert result.iloc[0]['적정주가(S-RIM)'] > 0
