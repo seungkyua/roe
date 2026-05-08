@@ -34,3 +34,10 @@ def test_find_target_year_column_returns_correct_index():
     header_cells = ["IFRS(연결)", "2023/12", "2024/12", "2025/12(E)", "2026/12(E)"]
     idx = analyzer.find_target_year_column(header_cells)
     assert idx == 3
+
+
+def test_find_target_year_column_returns_none_when_not_found():
+    analyzer = make_analyzer(year=2025)
+    header_cells = ["IFRS(연결)", "2023/12", "2024/12"]
+    idx = analyzer.find_target_year_column(header_cells)
+    assert idx is None
