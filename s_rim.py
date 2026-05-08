@@ -7,6 +7,8 @@ def s_rim():
     # 원택
     # =============================================================================
     # 자본 총계
+    # equity는 Financial Highlight 표의 row 는 자본 총계 아래의 지배주주지분, column 은 작년 12월 값인 2025/12 의 값으로 4,243,133 이다. 
+    # https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A005930&cID=&MenuYn=Y&ReportGB=&NewMenuID=11&stkGb=701
     equity = 151300000000   # 테스트
     equity = 126800000000   # 원텍
 
@@ -18,10 +20,14 @@ def s_rim():
     # roe = ((7.65 * 3) + (8.96 * 2) + (6.79 * 1)) / 6
 
     # 이익 할인율 (BBB- 5년 회사채 금리)
+    # 신용등급 - 등급통계 - 등급별 금리스프레드의 row 는 BBB-, column 은 5년으로 하면 10.40 값이 나옴 
+    # https://www.kisrating.com/ratingsStatistics/statics_spread.do
     discount_rate = 8.05    # 테스트
-    discount_rate = 9.24    # 9.24%
+    discount_rate = 10.40   # 10.40%
 
     # 총 주식수 = 발행 주식수(보통주) - 자기 주식(보통주)
+    # total_shares 는 시세현황 표의 발생주식수 (보통주/ 우선주) 의 보통주 값 5,846,278,608 에서 주주구분 현황표의 row 는 자기주식 (자사주+자사주신탁), column 은 보통주의 값인 82,086,705	을 뺀 값이다.
+    # https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A005930&cID=&MenuYn=Y&ReportGB=&NewMenuID=11&stkGb=701
     total_shares = 15179843              # 테스트
     total_shares = 89968897 - 3793       # 원텍
 
