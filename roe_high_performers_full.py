@@ -39,60 +39,66 @@ class ROEHighPerformersFull:
         
         return high_roe_stocks
     
+    def compute_stats(self, df):
+        """ROE 통계(평균/최대/최소) 계산"""
+        roe_col = f'{self.target_period}_ROE(%)'
+        return {
+            "avg": df[roe_col].mean(),
+            "max": df[roe_col].max(),
+            "min": df[roe_col].min(),
+        }
+
+    def compute_roe_distribution(self, df):
+        """ROE 구간별 종목 수 계산"""
+        roe_col = f'{self.target_period}_ROE(%)'
+        ranges = [
+            (10, 15, "10-15%"),
+            (15, 20, "15-20%"),
+            (20, 30, "20-30%"),
+            (30, 50, "30-50%"),
+            (50, float('inf'), "50%+"),
+        ]
+        result = {}
+        for lo, hi, label in ranges:
+            if hi == float('inf'):
+                count = len(df[df[roe_col] >= lo])
+            else:
+                count = len(df[(df[roe_col] >= lo) & (df[roe_col] < hi)])
+            result[label] = count
+        return result
+
     def print_results(self, high_roe_stocks):
         """결과 출력"""
         if high_roe_stocks.empty:
             print(f"\n❌ ROE {self.roe_threshold}% 이상인 종목이 없습니다.")
             return
-        
+
         roe_column = f'{self.target_period}_ROE(%)'
-        
+
         print(f"\n🎯 ROE {self.roe_threshold}% 이상 고성과 종목 ({len(high_roe_stocks)}개)")
         print("=" * 80)
         print(f"{'순위':<4} {'종목코드':<8} {'종목명':<15} {'시장':<8} {roe_column}")
         print("-" * 80)
-        
+
         for idx, (_, row) in enumerate(high_roe_stocks.iterrows(), 1):
-            stock_code = row['종목코드']
-            stock_name = row['종목명']
-            market = row['시장']
-            roe_value = row[roe_column]
-            
-            print(f"{idx:<4} {stock_code:<8} {stock_name:<15} {market:<8} {roe_value:>6.2f}%")
-        
+            print(f"{idx:<4} {row['종목코드']:<8} {row['종목명']:<15} {row['시장']:<8} {row[roe_column]:>6.2f}%")
+
         print("=" * 80)
-        
-        # 통계 정보
-        avg_roe = high_roe_stocks[roe_column].mean()
-        max_roe = high_roe_stocks[roe_column].max()
-        min_roe = high_roe_stocks[roe_column].min()
-        
+
+        stats = self.compute_stats(high_roe_stocks)
         print(f"📊 통계 정보:")
-        print(f"   평균 ROE: {avg_roe:.2f}%")
-        print(f"   최고 ROE: {max_roe:.2f}%")
-        print(f"   최저 ROE: {min_roe:.2f}%")
-        
-        # 시장별 분포
+        print(f"   평균 ROE: {stats['avg']:.2f}%")
+        print(f"   최고 ROE: {stats['max']:.2f}%")
+        print(f"   최저 ROE: {stats['min']:.2f}%")
+
         market_dist = high_roe_stocks['시장'].value_counts()
         print(f"\n📈 시장별 분포:")
         for market, count in market_dist.items():
             print(f"   {market}: {count}개")
-        
-        # ROE 구간별 분포
+
+        dist = self.compute_roe_distribution(high_roe_stocks)
         print(f"\n📊 ROE 구간별 분포:")
-        roe_ranges = [
-            (10, 15, "10-15%"),
-            (15, 20, "15-20%"),
-            (20, 30, "20-30%"),
-            (30, 50, "30-50%"),
-            (50, float('inf'), "50%+")
-        ]
-        
-        for min_val, max_val, label in roe_ranges:
-            if max_val == float('inf'):
-                count = len(high_roe_stocks[high_roe_stocks[roe_column] >= min_val])
-            else:
-                count = len(high_roe_stocks[(high_roe_stocks[roe_column] >= min_val) & (high_roe_stocks[roe_column] < max_val)])
+        for label, count in dist.items():
             if count > 0:
                 print(f"   {label}: {count}개")
     

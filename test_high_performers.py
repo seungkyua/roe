@@ -75,3 +75,22 @@ def test_find_high_roe_stocks_returns_empty_when_analyzer_returns_nothing():
     result = finder.find_high_roe_stocks()
 
     assert result.empty
+
+
+# ── 테스트 5: 통계 계산 ──────────────────────────────────────────────────────
+
+def test_compute_stats_returns_correct_avg_max_min():
+    finder = make_finder([], threshold=10.0)
+    roe_col = "2025/12(E)_ROE(%)"
+    df = pd.DataFrame({
+        "종목코드": ["A", "B", "C"],
+        "종목명": ["가", "나", "다"],
+        "시장": ["KOSPI"] * 3,
+        roe_col: [10.0, 20.0, 30.0],
+    })
+
+    stats = finder.compute_stats(df)
+
+    assert stats["avg"] == pytest.approx(20.0)
+    assert stats["max"] == pytest.approx(30.0)
+    assert stats["min"] == pytest.approx(10.0)
