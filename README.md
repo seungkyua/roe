@@ -162,8 +162,7 @@ python stock_fundamentals_fetcher.py \
 # 4단계: S-RIM 적정 주가 계산
 python s_rim_pipeline.py \
   --roe-csv roe_10.0plus_2026_full_results.csv \
-  --fundamentals-csv fundamentals_2026.csv \
-  --discount-rate 10.40
+  --fundamentals-csv fundamentals_2026.csv
 ```
 
 
