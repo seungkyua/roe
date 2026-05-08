@@ -82,3 +82,23 @@ def test_find_equity_returns_last_year_december_value_in_won():
     equity = fetcher.find_equity(soup, '005930')
 
     assert equity == 4_243_133 * 1e8
+
+
+def test_find_issued_shares_returns_common_stock_count():
+    """발행주식수(보통주) 값을 정수로 반환"""
+    fetcher = make_fetcher()
+    soup = make_market_info_soup(issued_common=5_846_278_608, issued_preferred=802_371_203)
+
+    issued = fetcher.find_issued_shares(soup)
+
+    assert issued == 5_846_278_608
+
+
+def test_find_treasury_shares_returns_treasury_common_stock():
+    """자기주식(자사주+자사주신탁) 보통주 값을 정수로 반환"""
+    fetcher = make_fetcher()
+    soup = make_shareholder_soup(treasury=82_086_705)
+
+    treasury = fetcher.find_treasury_shares(soup)
+
+    assert treasury == 82_086_705
