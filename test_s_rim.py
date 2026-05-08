@@ -102,6 +102,27 @@ def test_merge_inputs_excludes_unmatched_stocks():
 
 # ── SRIMPipeline.run() ────────────────────────────────────────────────────────
 
+def test_load_normalizes_roe_column_name(tmp_path):
+    """ROE CSV의 YYYY/12(E)_ROE(%) 컬럼이 ROE(%)로 정규화된다"""
+    roe_csv = tmp_path / "roe.csv"
+    fundamentals_csv = tmp_path / "fundamentals.csv"
+
+    pd.DataFrame([
+        {'종목코드': '005930', '종목명': '삼성전자', '시장': 'KOSPI', '2026/12(E)_ROE(%)': 10.85},
+    ]).to_csv(roe_csv, index=False, encoding='utf-8-sig')
+
+    pd.DataFrame([
+        {'종목코드': '005930', '자본총계(원)': 4_243_133 * 1e8, '총주식수': 5_764_191_903},
+    ]).to_csv(fundamentals_csv, index=False, encoding='utf-8-sig')
+
+    pipeline = SRIMPipeline(9.24, str(roe_csv), str(fundamentals_csv))
+    merged = pipeline.load()
+
+    assert 'ROE(%)' in merged.columns
+    assert '2026/12(E)_ROE(%)' not in merged.columns
+    assert merged.iloc[0]['ROE(%)'] == pytest.approx(10.85)
+
+
 def test_pipeline_run_applies_srim_to_merged_data(tmp_path):
     """run()이 병합 데이터 전체에 S-RIM 계산을 적용한 DataFrame을 반환한다"""
     roe_csv = tmp_path / "roe.csv"

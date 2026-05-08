@@ -25,6 +25,10 @@ class SRIMPipeline:
         fundamentals_df = pd.read_csv(self.fundamentals_csv, encoding='utf-8-sig', dtype={'종목코드': str})
         roe_df['종목코드'] = roe_df['종목코드'].str.zfill(6)
         fundamentals_df['종목코드'] = fundamentals_df['종목코드'].str.zfill(6)
+        # YYYY/12(E)_ROE(%) 형식의 컬럼을 ROE(%)로 정규화
+        roe_col = next((c for c in roe_df.columns if c.endswith('_ROE(%)')), None)
+        if roe_col:
+            roe_df = roe_df.rename(columns={roe_col: 'ROE(%)'})
         return merge_inputs(roe_df, fundamentals_df)
 
     def run(self) -> pd.DataFrame:
