@@ -94,6 +94,30 @@ def test_build_result_calculates_upside_percentage():
     assert result['상승여력(%)'] == pytest.approx(expected_pct, rel=1e-3)
 
 
+def test_print_result_uses_box_table_format(capsys):
+    """print_result()가 유니코드 박스 테이블 형태로 출력한다"""
+    import stock_lookup
+    result = stock_lookup.build_result(
+        code='005930', name='삼성전자', market='KOSPI',
+        current_roe=10.85, future_roe=29.42,
+        equity=424_313_300_000_000, total_shares=5_764_191_903,
+        discount_rate=10.41, current_price=268_500,
+    )
+
+    stock_lookup.print_result(result)
+    captured = capsys.readouterr().out
+
+    assert '┌' in captured and '┐' in captured   # 상단 테두리
+    assert '└' in captured and '┘' in captured   # 하단 테두리
+    assert '│' in captured                        # 세로 구분선
+    assert '삼성전자' in captured
+    assert '005930' in captured
+    assert 'KOSPI' in captured
+    assert '268,500' in captured
+    assert '10.85' in captured
+    assert '29.42' in captured
+
+
 def test_build_result_sets_zero_upside_when_future_roe_is_zero():
     """예상ROE가 0이면 예상 주가와 상승여력도 0이다"""
     result = build_result(

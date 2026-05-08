@@ -19,6 +19,7 @@ import logging
 import re
 import sys
 import time
+import unicodedata
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -225,24 +226,76 @@ def build_result(
     }
 
 
+def _dw(s: str) -> int:
+    """CJK 문자를 2칸으로 계산한 디스플레이 폭"""
+    return sum(2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1 for c in s)
+
+
+def _ljust(s: str, width: int) -> str:
+    """디스플레이 폭 기준 왼쪽 정렬"""
+    return s + ' ' * max(0, width - _dw(s))
+
+
+def _rjust(s: str, width: int) -> str:
+    """디스플레이 폭 기준 오른쪽 정렬"""
+    return ' ' * max(0, width - _dw(s)) + s
+
+
 def print_result(result: dict) -> None:
-    cols = [c for c in DISPLAY_COLUMNS if c in result]
-    width = max(len(c) for c in cols) + 2
+    """유니코드 박스 테이블로 결과 출력"""
+    LW = 26   # 레이블 열 디스플레이 폭
+    VW = 20   # 값 열 디스플레이 폭
+
+    def hline(l, m, r):
+        return f"{l}{'─'*(LW+2)}{m}{'─'*(VW+2)}{r}"
+
+    def row(label: str, value: str) -> str:
+        return f"│ {_ljust(label, LW)} │ {_rjust(value, VW)} │"
+
+    def fmt_price(n) -> str:
+        return f"{int(n):,} 원" if n and int(n) != 0 else "         -  원"
+
+    def fmt_pct(v: float, signed: bool = False) -> str:
+        return f"{v:+.2f} %" if signed else f"{v:.2f} %"
+
+    # ── 헤더 ──────────────────────────────────────────────────
+    name   = result.get('종목명', '')
+    code   = result.get('종목코드', '')
+    market = result.get('시장', '')
+
+    inner_w   = LW + VW + 5          # │ 제외 내부 폭
+    title     = f"  {name} ({code})"
+    mkt       = f"{market}  "
+    gap       = inner_w - _dw(title) - _dw(mkt)
+    hdr_inner = title + ' ' * max(1, gap) + mkt
+
     print()
-    print("=" * 62)
-    for col in cols:
-        val = result[col]
-        if isinstance(val, float):
-            if col in ('ROE(%)', '예상ROE(%)', '상승여력(%)'):
-                formatted = f"{val:+.2f}%" if col == '상승여력(%)' else f"{val:.2f}%"
-            else:
-                formatted = f"{int(val):,}" if val == int(val) else f"{val:,.0f}"
-        elif isinstance(val, int):
-            formatted = f"{val:,}"
-        else:
-            formatted = str(val)
-        print(f"  {col:<{width}}: {formatted}")
-    print("=" * 62)
+    print(f"┌{'─'*(inner_w+2)}┐")
+    print(f"│{hdr_inner}│")
+    print(hline('├', '┬', '┤'))
+
+    # ── 현재가 ───────────────────────────────────────────────
+    print(row("현재가", fmt_price(result['현재가'])))
+    print(hline('├', '┼', '┤'))
+
+    # ── ROE ──────────────────────────────────────────────────
+    print(row("ROE (%)",      fmt_pct(result['ROE(%)'])))
+    print(row("예상 ROE (%)", fmt_pct(result['예상ROE(%)'])))
+    print(hline('├', '┼', '┤'))
+
+    # ── 적정 주가 ─────────────────────────────────────────────
+    print(row("적정주가 (S-RIM)",  fmt_price(result['적정주가(S-RIM)'])))
+    print(row("보수적주가 (S-RIM)", fmt_price(result['보수적주가(S-RIM)'])))
+    print(hline('├', '┼', '┤'))
+
+    # ── 예상 적정 주가 ────────────────────────────────────────
+    print(row("예상적정주가 (S-RIM)",  fmt_price(result['예상적정주가(S-RIM)'])))
+    print(row("예상보수적주가 (S-RIM)", fmt_price(result['예상보수적주가(S-RIM)'])))
+    print(hline('├', '┼', '┤'))
+
+    # ── 상승여력 ──────────────────────────────────────────────
+    print(row("상승여력 (%)", fmt_pct(result['상승여력(%)'], signed=True)))
+    print(hline('└', '┴', '┘'))
     print()
 
 
