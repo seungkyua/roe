@@ -23,3 +23,17 @@ def test_proper_price_returns_srim_valuation():
     from s_rim import cal_proper_values
     _, expected = cal_proper_values(9.24, equity, roe, total_shares)
     assert price == expected
+
+
+def test_conservative_price_returns_supernormal_valuation():
+    """초과이익 10% 감소 모델로 보수적 주가 반환"""
+    calc = make_calc(discount_rate=9.24)
+    equity = 126_800_000_000
+    roe = 31.95
+    total_shares = 89_968_897 - 3_793
+
+    price = calc.conservative_price(equity, roe, total_shares)
+
+    from s_rim import cal_supernormal_values
+    expected = cal_supernormal_values(9.24, equity, roe, total_shares)
+    assert price == expected
