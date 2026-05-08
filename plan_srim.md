@@ -22,6 +22,10 @@
 - [x] find_treasury_shares()가 주주구분 현황 표에서 자기주식 보통주를 반환한다
 - [x] fetch()가 종목코드로 페이지를 가져와 자본총계(원)과 총주식수를 반환한다
 
+### 미래 예상 ROE 계산 (stock_fundamentals_fetcher.py)
+- [ ] find_future_roe()가 Annual 확장 테이블의 마지막 추정치로 예상 ROE를 계산한다
+- [ ] fetch()가 예상ROE(%) 컬럼을 포함한 결과를 반환한다
+
 ### 파이프라인 연결
 - [ ] SRIMPipeline.load()가 ROE CSV의 YYYY/12(E)_ROE(%) 컬럼을 ROE(%)로 정규화한다
 - [ ] StockFundamentalsFetcher.run_from_roe_csv()가 ROE CSV에서 종목코드를 읽어 저장한다

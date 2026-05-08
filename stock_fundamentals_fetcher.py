@@ -149,22 +149,91 @@ class StockFundamentalsFetcher:
                         return int(val)
         return 0
 
+    def find_future_roe(self, soup, stock_code: str) -> float:
+        """
+        IFRS(연결) Annual 확장 테이블(Net Quarter 없음)에서 미래 예상 ROE 계산.
+
+        SVD_Main 페이지의 테이블11이 이 구조에 해당하며,
+        컨센서스 추정치(E) 포함 최대 8개 연간 컬럼을 제공한다.
+
+        계산:
+          지배주주순이익 = 마지막 추정 컬럼
+          전기말 지배주주지분 = 마지막-1 컬럼
+          당기말 지배주주지분 = 마지막 컬럼
+          예상ROE(%) = 지배주주순이익 / ((전기말 + 당기말) / 2) * 100
+        """
+        for table in soup.find_all('table'):
+            rows = table.find_all('tr')
+            if len(rows) < 3:
+                continue
+
+            header_cells = rows[0].find_all(['td', 'th'])
+            header_texts = [c.get_text(strip=True) for c in header_cells]
+
+            # IFRS(연결) Annual 테이블이되 Net Quarter 가 없는 것 (table 11)
+            if 'IFRS(연결)' not in header_texts or 'Annual' not in header_texts:
+                continue
+            if 'Net Quarter' in header_texts:
+                continue
+
+            net_income = None
+            prev_equity = None
+            curr_equity = None
+
+            for row in rows[2:]:
+                cells = row.find_all(['td', 'th'])
+                if not cells:
+                    continue
+                label = cells[0].get_text(strip=True)
+
+                if label == '지배주주순이익' and net_income is None:
+                    # 마지막 셀 = 가장 미래 추정치
+                    val = cells[-1].get_text(strip=True).replace(',', '')
+                    if val and re.match(r'^-?\d+(\.\d+)?$', val):
+                        net_income = float(val)
+
+                elif label == '지배주주지분' and prev_equity is None:
+                    valid_vals = [
+                        float(c.get_text(strip=True).replace(',', ''))
+                        for c in cells[1:]
+                        if re.match(r'^-?\d+(\.\d+)?$', c.get_text(strip=True).replace(',', ''))
+                    ]
+                    if len(valid_vals) >= 2:
+                        prev_equity = valid_vals[-2]  # 전기말
+                        curr_equity = valid_vals[-1]  # 당기말
+
+            if net_income and prev_equity and curr_equity:
+                avg_equity = (prev_equity + curr_equity) / 2
+                if avg_equity > 0:
+                    roe = net_income / avg_equity * 100
+                    logger.info(
+                        f"{stock_code}: 예상ROE={roe:.2f}% "
+                        f"(순이익={net_income:,.0f}, 평균자기자본={avg_equity:,.0f})"
+                    )
+                    return round(roe, 2)
+            break
+
+        logger.warning(f"{stock_code}: 예상 ROE를 계산할 수 없습니다.")
+        return 0.0
+
     # ── 단일 종목 수집 ─────────────────────────────────────────────────────────
 
     def fetch(self, stock_code: str) -> dict:
         """종목코드로 FnGuide 페이지 조회 후 재무 기초 데이터 반환"""
         soup = self.get_page(stock_code)
         if soup is None:
-            return {'종목코드': stock_code, '자본총계(원)': 0.0, '총주식수': 0}
+            return {'종목코드': stock_code, '자본총계(원)': 0.0, '총주식수': 0, '예상ROE(%)': 0.0}
 
         equity = self.find_equity(soup, stock_code)
         issued = self.find_issued_shares(soup)
         treasury = self.find_treasury_shares(soup)
+        future_roe = self.find_future_roe(soup, stock_code)
 
         return {
             '종목코드': stock_code,
             '자본총계(원)': equity,
             '총주식수': issued - treasury,
+            '예상ROE(%)': future_roe,
         }
 
     # ── 전체 종목 수집 ─────────────────────────────────────────────────────────

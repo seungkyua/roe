@@ -227,14 +227,115 @@ def test_run_from_roe_csv_saves_fundamentals(tmp_path, monkeypatch):
     assert '총주식수' in result.columns
 
 
-def test_fetch_returns_equity_and_total_shares(monkeypatch):
-    """fetch()가 자본총계(원)과 총주식수(발행-자기주식)를 반환한다"""
+def make_annual_extended_soup(net_income_by_year: dict, equity_by_year: dict):
+    """
+    IFRS(연결) Annual 확장 테이블 모킹 (Net Quarter 없음, 미래 추정치 포함).
+    rows[0]: IFRS(연결) | Annual
+    rows[1]: 연도 헤더 (e.g. 2023/12 | 2024/12 | 2025/12 | 2026/12(E) | ...)
+    """
+    years = sorted(net_income_by_year.keys())
+    year_header = "".join(f"<th>{y}</th>" for y in years)
+    ni_values  = "".join(f"<td>{net_income_by_year[y]:,}</td>" for y in years)
+    eq_values  = "".join(f"<td>{equity_by_year[y]:,}</td>" for y in years)
+    padding = "".join("<tr><td></td></tr>" for _ in range(5))
+    html = f"""<html><body>
+    <table>
+      <tr><th colspan="1">IFRS(연결)</th><th colspan="{len(years)}">Annual</th></tr>
+      <tr>{year_header}</tr>
+      <tr><td>지배주주순이익</td>{ni_values}</tr>
+      <tr><td>지배주주지분</td>{eq_values}</tr>
+      {padding}
+    </table>
+    </body></html>"""
+    return BeautifulSoup(html, 'html.parser')
+
+
+def test_find_future_roe_calculates_from_last_two_estimates():
+    """
+    Annual 확장 테이블에서 마지막 추정치로 예상 ROE를 계산한다.
+    ROE = 지배주주순이익 / ((전기말_지배주주지분 + 당기말_지배주주지분) / 2) * 100
+    """
     fetcher = make_fetcher(year=2026)
-    mock_soup = make_combined_soup(
+    soup = make_annual_extended_soup(
+        net_income_by_year={
+            '2023/12': 144_734, '2024/12': 336_214, '2025/12': 442_610,
+            '2026/12(E)': 2_771_227, '2027/12(E)': 3_463_287, '2028/12(E)': 3_413_255,
+        },
+        equity_by_year={
+            '2023/12': 3_532_338, '2024/12': 3_916_876, '2025/12': 4_243_133,
+            '2026/12(E)': 6_826_716, '2027/12(E)': 9_981_304, '2028/12(E)': 13_223_566,
+        },
+    )
+
+    roe = fetcher.find_future_roe(soup, '005930')
+
+    expected = 3_413_255 / ((9_981_304 + 13_223_566) / 2) * 100
+    assert roe == pytest.approx(expected, rel=1e-3)
+
+
+def make_full_page_soup(equity_map, issued_common, issued_preferred, treasury,
+                        net_income_by_year, equity_by_year_extended):
+    """전체 페이지 구조 모킹 (시세현황 + 주주구분 + Financial Highlight + Annual 확장)"""
+    annual_count = len(equity_map)
+    year_header_fh = "".join(f"<th>{y}</th>" for y in sorted(equity_map.keys()))
+    equity_vals_fh = "".join(f"<td>{equity_map[y]:,}</td>" for y in sorted(equity_map.keys()))
+
+    years_ext = sorted(net_income_by_year.keys())
+    year_header_ext = "".join(f"<th>{y}</th>" for y in years_ext)
+    ni_vals = "".join(f"<td>{net_income_by_year[y]:,}</td>" for y in years_ext)
+    eq_vals = "".join(f"<td>{equity_by_year_extended[y]:,}</td>" for y in years_ext)
+    padding = "".join("<tr><td></td></tr>" for _ in range(20))
+
+    html = f"""<html><body>
+    <table class="us_table_ty1">
+      <tr><td>발행주식수(보통주/ 우선주)</td><td>{issued_common:,}/ {issued_preferred:,}</td></tr>
+    </table>
+    <table class="us_table_ty1">
+      <tr><th>주주구분</th><th>대표주주수</th><th>보통주</th><th>지분율</th></tr>
+      <tr><td>자기주식 (자사주+자사주신탁)</td><td>1</td><td>{treasury:,}</td><td>1.40</td></tr>
+    </table>
+    <!-- Financial Highlight (Annual+NetQ) -->
+    <table class="us_table_ty1">
+      <tr>
+        <th colspan="1">IFRS(연결)</th>
+        <th colspan="{annual_count}">Annual</th>
+        <th colspan="4">Net Quarter</th>
+      </tr>
+      <tr>{year_header_fh}</tr>
+      <tr><td>지배주주지분</td>{equity_vals_fh}</tr>
+      {padding}
+    </table>
+    <!-- Annual 확장 (Net Quarter 없음) -->
+    <table class="us_table_ty1">
+      <tr>
+        <th colspan="1">IFRS(연결)</th>
+        <th colspan="{len(years_ext)}">Annual</th>
+      </tr>
+      <tr>{year_header_ext}</tr>
+      <tr><td>지배주주순이익</td>{ni_vals}</tr>
+      <tr><td>지배주주지분</td>{eq_vals}</tr>
+      {padding}
+    </table>
+    </body></html>"""
+    return BeautifulSoup(html, 'html.parser')
+
+
+def test_fetch_returns_equity_and_total_shares(monkeypatch):
+    """fetch()가 자본총계(원), 총주식수, 예상ROE(%)를 반환한다"""
+    fetcher = make_fetcher(year=2026)
+    mock_soup = make_full_page_soup(
         equity_map={'2023/12': 3_532_338, '2024/12': 3_916_876, '2025/12': 4_243_133},
         issued_common=5_846_278_608,
         issued_preferred=802_371_203,
         treasury=82_086_705,
+        net_income_by_year={
+            '2023/12': 144_734, '2024/12': 336_214, '2025/12': 442_610,
+            '2026/12(E)': 2_771_227, '2027/12(E)': 3_463_287, '2028/12(E)': 3_413_255,
+        },
+        equity_by_year_extended={
+            '2023/12': 3_532_338, '2024/12': 3_916_876, '2025/12': 4_243_133,
+            '2026/12(E)': 6_826_716, '2027/12(E)': 9_981_304, '2028/12(E)': 13_223_566,
+        },
     )
     monkeypatch.setattr(fetcher, 'get_page', lambda code: mock_soup)
 
@@ -243,3 +344,5 @@ def test_fetch_returns_equity_and_total_shares(monkeypatch):
     assert result['종목코드'] == '005930'
     assert result['자본총계(원)'] == 4_243_133 * 1e8
     assert result['총주식수'] == 5_846_278_608 - 82_086_705
+    expected_roe = 3_413_255 / ((9_981_304 + 13_223_566) / 2) * 100
+    assert result['예상ROE(%)'] == pytest.approx(expected_roe, rel=1e-3)
