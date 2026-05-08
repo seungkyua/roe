@@ -109,8 +109,9 @@ class StockListManager:
                 response = self.session.get(url, timeout=30)
                 response.raise_for_status()
                 response.encoding = 'euc-kr'
-                
-                soup = BeautifulSoup(response.content, 'html.parser')
+                # response.text 를 사용해야 response.encoding 설정이 적용됨
+                # response.content(bytes)를 직접 전달하면 BeautifulSoup이 cp949 자동 감지 시 일부 문자 깨짐
+                soup = BeautifulSoup(response.text, 'html.parser')
                 
                 # 첫 번째 페이지에서 전체 페이지 수 확인
                 if page == 1:
