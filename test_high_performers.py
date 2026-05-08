@@ -38,3 +38,17 @@ def test_find_high_roe_stocks_returns_only_stocks_above_threshold():
     assert "005930" in codes
     assert "035420" in codes
     assert "000660" not in codes
+
+
+def test_find_high_roe_stocks_returns_sorted_by_roe_descending():
+    finder = make_finder([
+        ("000660", "SK하이닉스", 11.0),
+        ("035420", "NAVER", 25.0),
+        ("005930", "삼성전자", 17.5),
+    ], threshold=10.0)
+
+    result = finder.find_high_roe_stocks()
+
+    roe_col = "2025/12(E)_ROE(%)"
+    roe_values = result[roe_col].tolist()
+    assert roe_values == sorted(roe_values, reverse=True)
