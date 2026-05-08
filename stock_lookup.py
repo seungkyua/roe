@@ -270,7 +270,7 @@ def print_result(result: dict) -> None:
     hdr_inner = title + ' ' * max(1, gap) + mkt
 
     print()
-    print(f"┌{'─'*(inner_w+2)}┐")
+    print(f"┌{'─'*(inner_w)}┐")
     print(f"│{hdr_inner}│")
     print(hline('├', '┬', '┤'))
 
