@@ -102,3 +102,51 @@ def test_find_treasury_shares_returns_treasury_common_stock():
     treasury = fetcher.find_treasury_shares(soup)
 
     assert treasury == 82_086_705
+
+
+# ── 테스트 4: fetch() 통합 ────────────────────────────────────────────────────
+
+def make_combined_soup(equity_map, issued_common, issued_preferred, treasury):
+    """세 테이블을 하나의 HTML로 결합한 soup"""
+    years = sorted(equity_map.keys())
+    year_header = "".join(f"<th>{y}</th>" for y in years)
+    equity_values = "".join(f"<td>{equity_map[y]:,}</td>" for y in years)
+    padding = "".join("<tr><td></td></tr>" for _ in range(20))
+
+    html = f"""<html><body>
+    <!-- 시세현황 -->
+    <table class="us_table_ty1">
+      <tr><td>발행주식수(보통주/ 우선주)</td><td>{issued_common:,}/ {issued_preferred:,}</td></tr>
+    </table>
+    <!-- 주주구분 현황 -->
+    <table class="us_table_ty1">
+      <tr><th>주주구분</th><th>대표주주수</th><th>보통주</th><th>지분율</th></tr>
+      <tr><td>자기주식 (자사주+자사주신탁)</td><td>1</td><td>{treasury:,}</td><td>1.40</td></tr>
+    </table>
+    <!-- Financial Highlight -->
+    <table class="us_table_ty1">
+      <tr><th>IFRS(연결)</th><th>Annual</th><th>Net Quarter</th></tr>
+      <tr>{year_header}</tr>
+      <tr><td>지배주주지분</td>{equity_values}</tr>
+      {padding}
+    </table>
+    </body></html>"""
+    return BeautifulSoup(html, 'html.parser')
+
+
+def test_fetch_returns_equity_and_total_shares(monkeypatch):
+    """fetch()가 자본총계(원)과 총주식수(발행-자기주식)를 반환한다"""
+    fetcher = make_fetcher(year=2026)
+    mock_soup = make_combined_soup(
+        equity_map={'2023/12': 3_532_338, '2024/12': 3_916_876, '2025/12': 4_243_133},
+        issued_common=5_846_278_608,
+        issued_preferred=802_371_203,
+        treasury=82_086_705,
+    )
+    monkeypatch.setattr(fetcher, 'get_page', lambda code: mock_soup)
+
+    result = fetcher.fetch('005930')
+
+    assert result['종목코드'] == '005930'
+    assert result['자본총계(원)'] == 4_243_133 * 1e8
+    assert result['총주식수'] == 5_846_278_608 - 82_086_705
