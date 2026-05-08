@@ -61,6 +61,50 @@ def test_calc_row_adds_both_prices_to_dict():
     assert result['종목코드'] == '071280'
 
 
+def test_calc_row_adds_future_prices_when_expected_roe_present():
+    """예상ROE(%)가 0보다 크면 예상적정주가(S-RIM)와 예상보수적주가(S-RIM)를 추가한다"""
+    calc = make_calc(discount_rate=9.24)
+    row = {
+        '종목코드': '005930',
+        '종목명': '삼성전자',
+        '시장': 'KOSPI',
+        'ROE(%)': 10.85,
+        '자본총계(원)': 424_313_300_000_000,
+        '총주식수': 5_764_191_903,
+        '예상ROE(%)': 29.42,
+    }
+
+    result = calc.calc_row(row)
+
+    assert '예상적정주가(S-RIM)' in result
+    assert '예상보수적주가(S-RIM)' in result
+    assert result['예상적정주가(S-RIM)'] == calc.proper_price(
+        row['자본총계(원)'], row['예상ROE(%)'], row['총주식수']
+    )
+    assert result['예상보수적주가(S-RIM)'] == calc.conservative_price(
+        row['자본총계(원)'], row['예상ROE(%)'], row['총주식수']
+    )
+
+
+def test_calc_row_sets_future_prices_to_zero_when_expected_roe_is_zero():
+    """예상ROE(%)가 0이면 예상적정주가(S-RIM)와 예상보수적주가(S-RIM)는 0을 반환한다"""
+    calc = make_calc(discount_rate=9.24)
+    row = {
+        '종목코드': '000000',
+        '종목명': '테스트',
+        '시장': 'KOSPI',
+        'ROE(%)': 15.0,
+        '자본총계(원)': 100_000_000_000,
+        '총주식수': 10_000_000,
+        '예상ROE(%)': 0.0,
+    }
+
+    result = calc.calc_row(row)
+
+    assert result['예상적정주가(S-RIM)'] == 0
+    assert result['예상보수적주가(S-RIM)'] == 0
+
+
 # ── merge_inputs ──────────────────────────────────────────────────────────────
 
 def make_roe_df(rows):

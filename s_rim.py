@@ -296,11 +296,22 @@ class SRIMCalculator:
         equity = row['자본총계(원)']
         roe = row['ROE(%)']
         total_shares = row['총주식수']
-        return {
+        future_roe = row.get('예상ROE(%)', 0.0) or 0.0
+
+        result = {
             **row,
             '적정주가(S-RIM)': self.proper_price(equity, roe, total_shares),
             '보수적주가(S-RIM)': self.conservative_price(equity, roe, total_shares),
         }
+
+        if future_roe > 0:
+            result['예상적정주가(S-RIM)'] = self.proper_price(equity, future_roe, total_shares)
+            result['예상보수적주가(S-RIM)'] = self.conservative_price(equity, future_roe, total_shares)
+        else:
+            result['예상적정주가(S-RIM)'] = 0
+            result['예상보수적주가(S-RIM)'] = 0
+
+        return result
 
 
 # Press the green button in the gutter to run the script.
