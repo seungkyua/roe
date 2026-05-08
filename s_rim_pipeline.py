@@ -21,8 +21,10 @@ class SRIMPipeline:
         self.calculator = SRIMCalculator(discount_rate)
 
     def load(self) -> pd.DataFrame:
-        roe_df = pd.read_csv(self.roe_csv, encoding='utf-8-sig')
-        fundamentals_df = pd.read_csv(self.fundamentals_csv, encoding='utf-8-sig')
+        roe_df = pd.read_csv(self.roe_csv, encoding='utf-8-sig', dtype={'종목코드': str})
+        fundamentals_df = pd.read_csv(self.fundamentals_csv, encoding='utf-8-sig', dtype={'종목코드': str})
+        roe_df['종목코드'] = roe_df['종목코드'].str.zfill(6)
+        fundamentals_df['종목코드'] = fundamentals_df['종목코드'].str.zfill(6)
         return merge_inputs(roe_df, fundamentals_df)
 
     def run(self) -> pd.DataFrame:

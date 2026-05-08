@@ -98,3 +98,33 @@ def test_merge_inputs_excludes_unmatched_stocks():
     codes = merged['종목코드'].tolist()
     assert '000660' in codes
     assert '005930' not in codes
+
+
+# ── SRIMPipeline.run() ────────────────────────────────────────────────────────
+
+def test_pipeline_run_applies_srim_to_merged_data(tmp_path):
+    """run()이 병합 데이터 전체에 S-RIM 계산을 적용한 DataFrame을 반환한다"""
+    roe_csv = tmp_path / "roe.csv"
+    fundamentals_csv = tmp_path / "fundamentals.csv"
+
+    pd.DataFrame([
+        {'종목코드': '005930', '종목명': '삼성전자', '시장': 'KOSPI', 'ROE(%)': 12.5},
+        {'종목코드': '035420', '종목명': 'NAVER', '시장': 'KOSPI', 'ROE(%)': 7.2},
+    ]).to_csv(roe_csv, index=False, encoding='utf-8-sig')
+
+    pd.DataFrame([
+        {'종목코드': '005930', '자본총계(원)': 300_000_000_000, '총주식수': 5_000_000},
+    ]).to_csv(fundamentals_csv, index=False, encoding='utf-8-sig')
+
+    pipeline = SRIMPipeline(
+        discount_rate=9.24,
+        roe_csv=str(roe_csv),
+        fundamentals_csv=str(fundamentals_csv),
+    )
+    result = pipeline.run()
+
+    assert len(result) == 1
+    assert result.iloc[0]['종목코드'] == '005930'
+    assert '적정주가(S-RIM)' in result.columns
+    assert '보수적주가(S-RIM)' in result.columns
+    assert result.iloc[0]['적정주가(S-RIM)'] > 0
