@@ -37,3 +37,24 @@ def test_conservative_price_returns_supernormal_valuation():
     from s_rim import cal_supernormal_values
     expected = cal_supernormal_values(9.24, equity, roe, total_shares)
     assert price == expected
+
+
+def test_calc_row_adds_both_prices_to_dict():
+    """calc_row()가 입력 dict에 적정주가와 보수적주가를 추가한 dict를 반환"""
+    calc = make_calc(discount_rate=9.24)
+    row = {
+        '종목코드': '071280',
+        '종목명': '원텍',
+        '시장': 'KOSDAQ',
+        'ROE(%)': 31.95,
+        '자본총계(원)': 126_800_000_000,
+        '총주식수': 89_968_897 - 3_793,
+    }
+
+    result = calc.calc_row(row)
+
+    assert '적정주가(S-RIM)' in result
+    assert '보수적주가(S-RIM)' in result
+    assert result['적정주가(S-RIM)'] == calc.proper_price(row['자본총계(원)'], row['ROE(%)'], row['총주식수'])
+    assert result['보수적주가(S-RIM)'] == calc.conservative_price(row['자본총계(원)'], row['ROE(%)'], row['총주식수'])
+    assert result['종목코드'] == '071280'
