@@ -80,3 +80,14 @@ def test_find_roe_dynamic_year_extracts_roe_using_dynamic_column():
     )
     result = analyzer.find_roe_dynamic_year(soup, "005930")
     assert result == 15.75
+
+
+def test_find_roe_dynamic_year_returns_zero_when_target_year_absent():
+    analyzer = make_analyzer(year=2025)
+    # 테이블에 2025년 컬럼이 없는 경우
+    soup = make_fnguide_table_soup(
+        {"2022/12": 5.10, "2023/12": 8.50, "2024/12": 12.30},
+        target_year=2025,
+    )
+    result = analyzer.find_roe_dynamic_year(soup, "005930")
+    assert result == 0.0
