@@ -152,7 +152,6 @@ if __name__ == '__main__':
     result = rec.run(args.srim_csv, args.output)
 
     display_cols = [c for c in OUTPUT_COLUMNS if c in result.columns]
-    display_cols += ['상승여력(원)']
     top = result[display_cols].head(args.top)
 
     print(f"\n📈 S-RIM 예상 상승여력 상위 {min(args.top, len(result))}개 종목")
