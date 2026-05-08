@@ -44,30 +44,33 @@ def test_fetch_current_price_returns_zero_on_failure(monkeypatch):
 
 # ── 테스트 2: upside 계산 ────────────────────────────────────────────────────
 
-def test_recommender_calculates_upside_as_expected_price_minus_current():
-    """예상적정주가(S-RIM) - 현재가 = upside를 계산한다"""
+def test_recommender_calculates_upside_percentage():
+    """상승여력(%) = (예상적정주가 - 현재가) / 현재가 * 100"""
     rec = StockRecommender.__new__(StockRecommender)
     df = make_srim_df([
         {'종목코드': '005930', '종목명': '삼성전자', '시장': 'KOSPI',
          'ROE(%)': 10.85, '예상ROE(%)': 29.42, '현재가': 268_500,
          '적정주가(S-RIM)': 76_720, '보수적주가(S-RIM)': 75_040,
-         '예상적정주가(S-RIM)': 208_040, '예상보수적주가(S-RIM)': 135_320},
+         '예상적정주가(S-RIM)': 537_000, '예상보수적주가(S-RIM)': 135_320},
     ])
 
     result = rec.calculate_upside(df)
 
-    assert result.iloc[0]['상승여력(원)'] == 208_040 - 268_500
+    expected_pct = (537_000 - 268_500) / 268_500 * 100
+    assert result.iloc[0]['상승여력(%)'] == pytest.approx(expected_pct, rel=1e-3)
 
 
-def test_recommender_sorts_by_upside_descending():
-    """상승여력이 큰 종목이 앞에 온다"""
+def test_recommender_sorts_by_upside_percentage_not_absolute():
+    """절대값이 아닌 % 기준으로 정렬한다 (절대값 순서와 다른 케이스)"""
     rec = StockRecommender.__new__(StockRecommender)
     df = make_srim_df([
-        {'종목코드': 'A', '종목명': '낮은여력', '시장': 'KOSPI',
-         'ROE(%)': 10.0, '예상ROE(%)': 20.0, '현재가': 10_000,
-         '적정주가(S-RIM)': 9_000, '보수적주가(S-RIM)': 8_000,
-         '예상적정주가(S-RIM)': 15_000, '예상보수적주가(S-RIM)': 12_000},
-        {'종목코드': 'B', '종목명': '높은여력', '시장': 'KOSPI',
+        # A: 절대차 크지만 % 작음 — 현재가 100,000에 예상적정 150,000 → +50%
+        {'종목코드': 'A', '종목명': '절대값큰종목', '시장': 'KOSPI',
+         'ROE(%)': 10.0, '예상ROE(%)': 20.0, '현재가': 100_000,
+         '적정주가(S-RIM)': 90_000, '보수적주가(S-RIM)': 80_000,
+         '예상적정주가(S-RIM)': 150_000, '예상보수적주가(S-RIM)': 120_000},
+        # B: 절대차 작지만 % 큼 — 현재가 5,000에 예상적정 20,000 → +300%
+        {'종목코드': 'B', '종목명': '퍼센트큰종목', '시장': 'KOSPI',
          'ROE(%)': 15.0, '예상ROE(%)': 30.0, '현재가': 5_000,
          '적정주가(S-RIM)': 6_000, '보수적주가(S-RIM)': 5_500,
          '예상적정주가(S-RIM)': 20_000, '예상보수적주가(S-RIM)': 15_000},
@@ -75,6 +78,7 @@ def test_recommender_sorts_by_upside_descending():
 
     result = rec.calculate_upside(df)
 
+    # B가 먼저 와야 함 (절대차: A=50,000 > B=15,000이지만 %: B=300% > A=50%)
     assert result.iloc[0]['종목코드'] == 'B'
     assert result.iloc[1]['종목코드'] == 'A'
 

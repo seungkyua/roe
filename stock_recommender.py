@@ -25,6 +25,7 @@ OUTPUT_COLUMNS = [
     '현재가',
     '적정주가(S-RIM)', '보수적주가(S-RIM)',
     '예상적정주가(S-RIM)', '예상보수적주가(S-RIM)',
+    '상승여력(%)',
 ]
 
 
@@ -108,12 +109,15 @@ class StockRecommender:
 
     def calculate_upside(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        예상적정주가(S-RIM) - 현재가 = 상승여력 계산.
-        예상ROE(%)가 없는 종목(예상적정주가=0)은 제외하고 내림차순 정렬.
+        예상적정주가(S-RIM) 대비 현재가 상승여력(%) 계산.
+        예상ROE(%)가 없는 종목(예상적정주가=0) 및 현재가=0인 종목은 제외.
+        상승여력(%) 내림차순 정렬.
         """
-        df = df[df['예상적정주가(S-RIM)'] > 0].copy()
-        df['상승여력(원)'] = df['예상적정주가(S-RIM)'] - df['현재가']
-        df = df.sort_values('상승여력(원)', ascending=False)
+        df = df[(df['예상적정주가(S-RIM)'] > 0) & (df['현재가'] > 0)].copy()
+        df['상승여력(%)'] = (
+            (df['예상적정주가(S-RIM)'] - df['현재가']) / df['현재가'] * 100
+        ).round(2)
+        df = df.sort_values('상승여력(%)', ascending=False)
         return df.reset_index(drop=True)
 
     def run(self, srim_csv: str, output_csv: str) -> pd.DataFrame:
