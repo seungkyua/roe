@@ -52,3 +52,26 @@ def test_find_high_roe_stocks_returns_sorted_by_roe_descending():
     roe_col = "2025/12(E)_ROE(%)"
     roe_values = result[roe_col].tolist()
     assert roe_values == sorted(roe_values, reverse=True)
+
+
+def test_find_high_roe_stocks_returns_empty_when_no_stock_meets_threshold():
+    finder = make_finder([
+        ("005930", "삼성전자", 5.0),
+        ("000660", "SK하이닉스", 8.0),
+    ], threshold=10.0)
+
+    result = finder.find_high_roe_stocks()
+
+    assert result.empty
+
+
+def test_find_high_roe_stocks_returns_empty_when_analyzer_returns_nothing():
+    mock = MagicMock()
+    mock.target_period = "2025/12(E)"
+    mock.target_year = 2025
+    mock.analyze_stocks_roe_dynamic.return_value = pd.DataFrame()
+    finder = ROEHighPerformersFull(roe_threshold=10.0, analyzer=mock)
+
+    result = finder.find_high_roe_stocks()
+
+    assert result.empty
