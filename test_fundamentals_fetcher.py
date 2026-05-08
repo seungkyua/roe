@@ -1,4 +1,5 @@
 import pytest
+import pandas as pd
 from bs4 import BeautifulSoup
 from unittest.mock import patch, MagicMock
 from stock_fundamentals_fetcher import StockFundamentalsFetcher
@@ -132,6 +133,32 @@ def make_combined_soup(equity_map, issued_common, issued_preferred, treasury):
     </table>
     </body></html>"""
     return BeautifulSoup(html, 'html.parser')
+
+
+def test_run_from_roe_csv_saves_fundamentals(tmp_path, monkeypatch):
+    """ROE CSV에서 종목코드를 읽어 재무 데이터를 수집하고 output CSV에 저장한다"""
+    roe_csv = tmp_path / "roe.csv"
+    output_csv = tmp_path / "fundamentals.csv"
+
+    pd.DataFrame([
+        {'종목코드': '005930', '종목명': '삼성전자', '시장': 'KOSPI', '2026/12(E)_ROE(%)': 10.85},
+        {'종목코드': '035420', '종목명': 'NAVER',   '시장': 'KOSPI', '2026/12(E)_ROE(%)': 7.20},
+    ]).to_csv(roe_csv, index=False, encoding='utf-8-sig')
+
+    # fetch()를 mock으로 대체 (실 HTTP 차단)
+    def mock_fetch(code):
+        return {'종목코드': code, '자본총계(원)': 1_000_000 * 1e8, '총주식수': 5_000_000}
+
+    fetcher = StockFundamentalsFetcher()
+    monkeypatch.setattr(fetcher, 'fetch', mock_fetch)
+
+    fetcher.run_from_roe_csv(str(roe_csv), str(output_csv))
+
+    result = pd.read_csv(output_csv, encoding='utf-8-sig', dtype={'종목코드': str})
+    assert len(result) == 2
+    assert set(result['종목코드'].tolist()) == {'005930', '035420'}
+    assert '자본총계(원)' in result.columns
+    assert '총주식수' in result.columns
 
 
 def test_fetch_returns_equity_and_total_shares(monkeypatch):

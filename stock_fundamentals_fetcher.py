@@ -170,10 +170,28 @@ class StockFundamentalsFetcher:
         df.to_csv(filename, index=False, encoding='utf-8-sig')
         logger.info(f"재무 데이터 저장: {filename}")
 
+    def run_from_roe_csv(self, roe_csv: str, output_csv: str):
+        """ROE CSV에서 종목코드를 읽어 재무 데이터를 수집하고 output CSV에 저장"""
+        roe_df = pd.read_csv(roe_csv, encoding='utf-8-sig', dtype={'종목코드': str})
+        roe_df['종목코드'] = roe_df['종목코드'].str.zfill(6)
+        codes = roe_df['종목코드'].tolist()
+        logger.info(f"ROE CSV에서 {len(codes)}개 종목코드 읽음: {roe_csv}")
+
+        df = self.fetch_all(codes)
+        self.save(df, output_csv)
+        logger.info(f"재무 데이터 수집 완료 → {output_csv}")
+        return df
+
 
 if __name__ == '__main__':
-    import sys
-    codes = sys.argv[1:] if len(sys.argv) > 1 else ['005930']
-    fetcher = StockFundamentalsFetcher()
-    df = fetcher.fetch_all(codes)
+    import argparse
+    parser = argparse.ArgumentParser(description='FnGuide 재무 데이터 수집')
+    parser.add_argument('--roe-csv', required=True, help='ROE 결과 CSV (종목코드 소스)')
+    parser.add_argument('--output', required=True, help='저장할 재무 데이터 CSV 경로')
+    parser.add_argument('--workers', type=int, default=5, help='병렬 처리 워커 수')
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    fetcher = StockFundamentalsFetcher(max_workers=args.workers)
+    df = fetcher.run_from_roe_csv(args.roe_csv, args.output)
     print(df.to_string(index=False))
