@@ -9,8 +9,8 @@
 
 ## 테스트 목록
 
-- [ ] 헤더에 target_year가 포함된 컬럼 인덱스를 반환한다
-- [ ] 헤더에 target_year가 없으면 None을 반환한다
-- [ ] 여러 연도 컬럼 중 target_year와 일치하는 컬럼만 선택한다
-- [ ] 찾은 컬럼 인덱스로 ROE 값을 올바르게 추출한다
-- [ ] target_year가 포함된 컬럼이 없으면 ROE를 0.0으로 반환한다
+- [x] 헤더에 target_year가 포함된 컬럼 인덱스를 반환한다
+- [x] 헤더에 target_year가 없으면 None을 반환한다
+- [x] 여러 연도 컬럼 중 target_year와 일치하는 컬럼만 선택한다
+- [x] 찾은 컬럼 인덱스로 ROE 값을 올바르게 추출한다
+- [x] target_year가 포함된 컬럼이 없으면 ROE를 0.0으로 반환한다
