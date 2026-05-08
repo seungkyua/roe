@@ -275,6 +275,28 @@ def cal_proper_values(discount_rate, equity, roe, total_shares):
     return round_to(company_values), round_to(proper_values)
 
 
+class SRIMCalculator:
+    def __init__(self, discount_rate: float):
+        self.discount_rate = discount_rate
+
+    def proper_price(self, equity: float, roe: float, total_shares: int) -> float:
+        _, price = cal_proper_values(self.discount_rate, equity, roe, total_shares)
+        return price
+
+    def conservative_price(self, equity: float, roe: float, total_shares: int) -> float:
+        return cal_supernormal_values(self.discount_rate, equity, roe, total_shares)
+
+    def calc_row(self, row: dict) -> dict:
+        equity = row['자본총계(원)']
+        roe = row['ROE(%)']
+        total_shares = row['총주식수']
+        return {
+            **row,
+            '적정주가(S-RIM)': self.proper_price(equity, roe, total_shares),
+            '보수적주가(S-RIM)': self.conservative_price(equity, roe, total_shares),
+        }
+
+
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     s_rim()
