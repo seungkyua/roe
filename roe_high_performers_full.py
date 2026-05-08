@@ -12,8 +12,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class ROEHighPerformersFull:
-    def __init__(self, roe_threshold=10.0):
-        self.analyzer = StockROEAnalyzerFinal()
+    def __init__(self, roe_threshold=10.0, analyzer=None):
+        self.analyzer = analyzer if analyzer is not None else StockROEAnalyzerFinal()
         self.roe_threshold = roe_threshold
         self.target_period = self.analyzer.target_period
         
