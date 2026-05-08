@@ -123,41 +123,40 @@ class StockROEAnalyzerFinal:
                         'Net Quarter' in header_texts):
                         
                         logger.info(f"재무 테이블 발견! (테이블 {table_idx + 1})")
-                        logger.info(f"헤더: {header_texts}")
-                        
-                        # 모든 헤더 셀의 상세 정보 출력
-                        for idx, cell in enumerate(header_cells):
-                            cell_text = cell.get_text(strip=True)
-                            logger.info(f"  헤더 셀 {idx + 1}: '{cell_text}'")
-                        
-                        # ROE 행 찾기
+
+                        # 연도 레이블 행 탐색: target_year 문자열을 포함하는 첫 번째 행
+                        year_row_texts = None
+                        for row in rows:
+                            row_texts = [c.get_text(strip=True) for c in row.find_all(['td', 'th'])]
+                            if any(str(self.target_year) in t for t in row_texts):
+                                year_row_texts = row_texts
+                                break
+
+                        if year_row_texts is None:
+                            logger.warning(f"테이블 {table_idx + 1}에서 {self.target_year}년 레이블 행을 찾을 수 없습니다.")
+                            continue
+
+                        target_column_idx = self.find_target_year_column(year_row_texts)
+                        if target_column_idx is None:
+                            logger.warning(f"{self.target_year}년 컬럼을 찾을 수 없습니다: {year_row_texts}")
+                            continue
+
+                        logger.info(f"{self.target_year}년 컬럼 위치: {target_column_idx + 1} (행: {year_row_texts})")
+
+                        # ROE 행 탐색 후 목표 연도 컬럼 값 추출
                         for row_idx, row in enumerate(rows[1:], 1):
                             cells = row.find_all(['td', 'th'])
-                            
+
                             if len(cells) >= 2:
                                 first_cell_text = cells[0].get_text(strip=True)
-                                
-                                # ROE 관련 키워드 확인
+
                                 if 'ROE' in first_cell_text:
-                                    logger.info(f"ROE 행 발견! (테이블 {table_idx + 1}, 행 {row_idx + 1})")
-                                    logger.info(f"제목: {first_cell_text}")
-                                    
-                                    # 모든 셀의 내용 출력 (디버깅용)
-                                    for cell_idx, cell in enumerate(cells):
-                                        cell_text = cell.get_text(strip=True)
-                                        if cell_text:
-                                            logger.info(f"  셀 {cell_idx + 1}: {cell_text}")
-                                    
-                                    # 2025년 데이터 (셀 5번째) 가져오기
-                                    target_column_idx = 4  # 0-based index, 셀 5번째
-                                    logger.info(f"2025년 데이터 컬럼 선택: 위치 {target_column_idx + 1}")
-                                    
-                                    # 목표 연도 컬럼의 ROE 값 가져오기
+                                    logger.info(f"ROE 행 발견! (행 {row_idx + 1})")
+
                                     if len(cells) > target_column_idx:
                                         cell_text = cells[target_column_idx].get_text(strip=True)
                                         logger.info(f"목표 연도 셀 내용: {cell_text}")
-                                        
-                                        # 숫자 추출
+
                                         roe_match = re.search(r'([\d.-]+)', cell_text)
                                         if roe_match:
                                             roe_value = float(roe_match.group(1))
@@ -167,7 +166,7 @@ class StockROEAnalyzerFinal:
                                             logger.warning(f"{self.target_period} ROE 값이 숫자가 아닙니다: {cell_text}")
                                             return 0.0
                                     else:
-                                        logger.warning(f"목표 연도 컬럼 위치가 범위를 벗어났습니다.")
+                                        logger.warning(f"목표 연도 컬럼 위치({target_column_idx})가 ROE 행 범위를 벗어났습니다.")
                                         return 0.0
             
             logger.warning(f"종목코드 {stock_code}의 {self.target_period} ROE 값을 찾지 못했습니다.")
