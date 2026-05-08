@@ -58,3 +58,43 @@ def test_calc_row_adds_both_prices_to_dict():
     assert result['적정주가(S-RIM)'] == calc.proper_price(row['자본총계(원)'], row['ROE(%)'], row['총주식수'])
     assert result['보수적주가(S-RIM)'] == calc.conservative_price(row['자본총계(원)'], row['ROE(%)'], row['총주식수'])
     assert result['종목코드'] == '071280'
+
+
+# ── merge_inputs ──────────────────────────────────────────────────────────────
+
+def make_roe_df(rows):
+    return pd.DataFrame([
+        {'종목코드': code, '종목명': name, '2026/12(E)_ROE(%)': roe}
+        for code, name, roe in rows
+    ])
+
+def make_fundamentals_df(rows):
+    return pd.DataFrame([
+        {'종목코드': code, '자본총계(원)': equity, '총주식수': shares}
+        for code, equity, shares in rows
+    ])
+
+
+def test_merge_inputs_joins_on_stock_code():
+    """두 DataFrame이 종목코드 기준으로 병합된다"""
+    roe_df = make_roe_df([('005930', '삼성전자', 12.5), ('035420', 'NAVER', 7.2)])
+    fundamentals_df = make_fundamentals_df([('005930', 300_000_000_000, 5_000_000)])
+
+    merged = merge_inputs(roe_df, fundamentals_df)
+
+    assert len(merged) == 1
+    assert merged.iloc[0]['종목코드'] == '005930'
+    assert '2026/12(E)_ROE(%)' in merged.columns
+    assert '자본총계(원)' in merged.columns
+
+
+def test_merge_inputs_excludes_unmatched_stocks():
+    """한쪽에만 있는 종목은 결과에서 제외된다"""
+    roe_df = make_roe_df([('005930', '삼성전자', 12.5), ('000660', 'SK하이닉스', 20.0)])
+    fundamentals_df = make_fundamentals_df([('000660', 200_000_000_000, 7_000_000)])
+
+    merged = merge_inputs(roe_df, fundamentals_df)
+
+    codes = merged['종목코드'].tolist()
+    assert '000660' in codes
+    assert '005930' not in codes
