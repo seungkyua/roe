@@ -148,21 +148,27 @@ python3 -m pip install matplotlib numpy
 
 
 ```bash
-# 1단계: 종목 코드 생성
+# 1단계: 종목 코드 생성 (output: stock_list_krx.csv)
 python stock_list_manual.py
 
-# 2단계: roe 계산 (10% 이상만)
+# 2단계: roe 계산 (10% 이상만) (output: roe_10.0plus_2026_full_results.csv)
 python roe_high_performers_full.py
 
-# 3단계: 재무 데이터 수집 (ROE CSV → fundamentals CSV)
+# 3단계: 재무 데이터 수집 (ROE CSV → fundamentals CSV) (output: fundamentals_2026.csv)
 python stock_fundamentals_fetcher.py \
   --roe-csv roe_10.0plus_2026_full_results.csv \
   --output fundamentals_2026.csv
 
-# 4단계: S-RIM 적정 주가 계산
+# 4단계: S-RIM 적정 주가 계산 (output: srim_results_10.41.csv)
 python s_rim_pipeline.py \
   --roe-csv roe_10.0plus_2026_full_results.csv \
   --fundamentals-csv fundamentals_2026.csv
+
+# 5단계: 종목 추천 (output: stock_recommendations.csv)
+python stock_recommender.py \
+  --srim-csv srim_results_10.41.csv \
+  --output stock_recommendations.csv \
+  --top 100
 ```
 
 
