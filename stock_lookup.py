@@ -21,6 +21,7 @@ import sys
 import time
 import unicodedata
 import requests
+from requests.adapters import HTTPAdapter
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -48,7 +49,7 @@ DISPLAY_COLUMNS = [
 
 # ── HTTP 헬퍼 ─────────────────────────────────────────────────────────────────
 
-def _make_session() -> requests.Session:
+def _make_session(pool_maxsize: int = 10) -> requests.Session:
     s = requests.Session()
     s.headers.update({
         'User-Agent': (
@@ -57,6 +58,10 @@ def _make_session() -> requests.Session:
         ),
         'Accept-Language': 'ko-KR,ko;q=0.9',
     })
+    # 병렬 요청 시 커넥션 풀 부족 경고 방지
+    adapter = HTTPAdapter(pool_connections=4, pool_maxsize=pool_maxsize)
+    s.mount('https://', adapter)
+    s.mount('http://', adapter)
     return s
 
 
@@ -121,42 +126,57 @@ def _search_code_by_name(name: str) -> str | None:
     """
     Naver Finance SISE 페이지를 병렬로 검색해 종목명과 일치하는 종목코드 반환.
     없으면 None.
+
+    최적화:
+    - 1페이지 fetch 에서 soup을 재사용해 전체 페이지 수도 한 번에 파악 (이중 요청 제거)
+    - 공유 세션의 커넥션 풀을 병렬 워커 수에 맞게 확대
     """
-    session = _make_session()
+    WORKERS = 10
     name_lower = name.strip().lower()
 
-    def _search_market(base_url: str, market: str) -> str | None:
-        # 1페이지로 전체 페이지 수 파악
-        first_page_stocks = _fetch_sise_page(base_url, session)
-        for s in first_page_stocks:
-            if name_lower in s['종목명'].lower():
-                return s['종목코드']
+    def _search_market(base_url: str) -> str | None:
+        # 시장별 독립 세션 — 세션 공유 시 pool_maxsize 경쟁 방지
+        sess = _make_session(pool_maxsize=WORKERS + 5)
 
-        # 전체 페이지 수 파악
+        # 1페이지 fetch — soup에서 종목 목록 + 전체 페이지 수를 동시에 추출
         try:
-            resp = session.get(base_url, timeout=15)
+            resp = sess.get(base_url, timeout=15)
+            resp.raise_for_status()
             resp.encoding = 'euc-kr'
             soup = BeautifulSoup(resp.text, 'html.parser')
-            total = _get_total_sise_pages(soup)
-        except Exception:
-            total = 30
+        except Exception as e:
+            logger.debug(f"SISE 1페이지 오류 ({base_url}): {e}")
+            return None
 
-        # 나머지 페이지 병렬 검색
+        # 1페이지 종목 검색
+        table = soup.find('table', {'class': 'type_2'})
+        if table:
+            for row in table.find_all('tr'):
+                link = row.find('a', href=re.compile(r'code=\d{6}'))
+                if link and name_lower in link.get_text(strip=True).lower():
+                    m = re.search(r'code=(\d{6})', link['href'])
+                    if m:
+                        return m.group(1)
+
+        # 전체 페이지 수 (1페이지 soup 재사용)
+        total = _get_total_sise_pages(soup)
+
+        # 2페이지 이후 병렬 검색
         sep = '&' if 'sosok=1' in base_url else '?'
         urls = [f"{base_url}{sep}page={p}" for p in range(2, total + 1)]
 
-        with ThreadPoolExecutor(max_workers=10) as ex:
-            futures = {ex.submit(_fetch_sise_page, u, session): u for u in urls}
+        with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+            futures = {ex.submit(_fetch_sise_page, u, sess): u for u in urls}
             for future in as_completed(futures):
                 for s in (future.result() or []):
                     if name_lower in s['종목명'].lower():
                         return s['종목코드']
         return None
 
-    # KOSPI, KOSDAQ 병렬 검색
+    # KOSPI, KOSDAQ 병렬 검색 (각자 독립 세션 사용)
     with ThreadPoolExecutor(max_workers=2) as ex:
-        kospi_f  = ex.submit(_search_market, NAVER_SISE_KOSPI,  'KOSPI')
-        kosdaq_f = ex.submit(_search_market, NAVER_SISE_KOSDAQ, 'KOSDAQ')
+        kospi_f  = ex.submit(_search_market, NAVER_SISE_KOSPI)
+        kosdaq_f = ex.submit(_search_market, NAVER_SISE_KOSDAQ)
         for future in as_completed([kospi_f, kosdaq_f]):
             result = future.result()
             if result:
