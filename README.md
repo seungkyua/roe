@@ -147,29 +147,7 @@ python3 -m pip install matplotlib numpy
   다음 단계: 재무 데이터 URL을 주시면 stock_fundamentals_fetcher.py 스크래핑 로직을 구현합니다.
 
 
-```bash
-# 1단계: 종목 코드 생성 (output: stock_list_krx.csv)
-python stock_list_manual.py
 
-# 2단계: roe 계산 (10% 이상만) (output: roe_10.0plus_2026_full_results.csv)
-python roe_high_performers_full.py
-
-# 3단계: 재무 데이터 수집 (ROE CSV → fundamentals CSV) (output: fundamentals_2026.csv)
-python stock_fundamentals_fetcher.py \
-  --roe-csv roe_10.0plus_2026_full_results.csv \
-  --output fundamentals_2026.csv
-
-# 4단계: S-RIM 적정 주가 계산 (output: srim_results_10.41.csv)
-python s_rim_pipeline.py \
-  --roe-csv roe_10.0plus_2026_full_results.csv \
-  --fundamentals-csv fundamentals_2026.csv
-
-# 5단계: 종목 추천 (output: stock_recommendations.csv)
-python stock_recommender.py \
-  --srim-csv srim_results_10.41.csv \
-  --output stock_recommendations.csv \
-  --top 100
-```
 
 
 수정 요약
@@ -242,3 +220,64 @@ python stock_lookup.py 한국금융      # 부분 이름 검색
   - **ROE < 할인율**: 보수적주가 > 적정주가 (수학적으로 정상, 이름은 혼란스러움)
 
   삼성물산처럼 ROE가 낮은 종목은 두 가격이 모두 현재가(422,500원)보다 훨씬 낮으므로, 어느 모델로도 현재가 대비 고평가 상태임을 보여주는 것은 동일합니다.
+
+
+┌──────────┬────────────────────────────────────────────┬───────────────┐
+│  --sort  │                 정렬 기준                  │  현재가 필요  │
+├──────────┼────────────────────────────────────────────┼───────────────┤
+│ proper   │ (적정주가 - 현재가) / 현재가 × 100         │ O (병렬 조회) │
+├──────────┼────────────────────────────────────────────┼───────────────┤
+│ expected │ (예상적정주가 - 현재가) / 현재가 × 100     │ O (병렬 조회) │
+├──────────┼────────────────────────────────────────────┼───────────────┤
+│ growth   │ (예상적정주가 - 적정주가) / 적정주가 × 100 │ X             │
+└──────────┴────────────────────────────────────────────┴───────────────┘
+
+
+
+```bash
+# 1단계: 종목 코드 생성 (output: stock_list_krx.csv)
+python stock_list_manual.py
+
+# 2단계: roe 계산 (10% 이상만) (output: roe_10.0plus_2026_full_results.csv)
+python roe_high_performers_full.py
+
+# 3단계: 재무 데이터 수집 (ROE CSV → fundamentals CSV) (output: fundamentals_2026.csv)
+python stock_fundamentals_fetcher.py \
+  --roe-csv roe_10.0plus_2026_full_results.csv \
+  --output fundamentals_2026.csv
+
+# 4단계: S-RIM 적정 주가 계산 (output: srim_results_10.41.csv)
+python s_rim_pipeline.py \
+  --roe-csv roe_10.0plus_2026_full_results.csv \
+  --fundamentals-csv fundamentals_2026.csv
+
+# 5단계: 종목 추천 (output: stock_recommendations.csv)
+python stock_recommender.py \
+  --srim-csv srim_results_10.41.csv \
+  --output stock_recommendations.csv \
+  --top 100 \
+  --sort proper
+```
+
+```bash
+# 예상적정주가 대비 현재가 상승여력 순 (현재가 자동 수집)
+python stock_recommender.py \
+  --srim-csv srim_results_10.41.csv \
+  --output stock_recommendations.csv \
+  --top 100 \
+  --sort expected
+
+# 적정주가 대비 현재가 상승여력 순 (현재가 자동 수집)
+python stock_recommender.py \
+  --srim-csv srim_results_10.41.csv \
+  --output stock_recommendations.csv \
+  --top 100 \
+  --sort proper
+
+# 예상적정주가가 현재 적정주가 대비 얼마나 높은지 순 (현재가 불필요, 빠름)
+python stock_recommender.py \
+  --srim-csv srim_results_10.41.csv \
+  --output stock_recommendations.csv \
+  --top 100 \
+  --sort growth
+```
