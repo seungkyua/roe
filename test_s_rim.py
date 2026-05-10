@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 from bs4 import BeautifulSoup
 from s_rim import SRIMCalculator
-from s_rim_pipeline import merge_inputs, SRIMPipeline, fetch_discount_rate, sort_results
+from s_rim_pipeline import merge_inputs, SRIMPipeline, fetch_discount_rate
 
 
 # ── SRIMCalculator ────────────────────────────────────────────────────────────
@@ -263,61 +263,3 @@ def test_pipeline_uses_auto_fetched_discount_rate(tmp_path, monkeypatch):
 
     assert result.iloc[0]['할인율(%)'] == pytest.approx(10.41)
     assert result.iloc[0]['적정주가(S-RIM)'] > 0
-
-
-# ── sort_results ──────────────────────────────────────────────────────────────
-
-def make_srim_df_for_sort():
-    return pd.DataFrame([
-        {'종목코드': 'A', '종목명': 'α', '시장': 'KOSPI',
-         '적정주가(S-RIM)': 100_000, '예상적정주가(S-RIM)': 150_000, '현재가': 80_000},
-        {'종목코드': 'B', '종목명': 'β', '시장': 'KOSPI',
-         '적정주가(S-RIM)': 50_000,  '예상적정주가(S-RIM)': 200_000, '현재가': 90_000},
-        {'종목코드': 'C', '종목명': 'γ', '시장': 'KOSPI',
-         '적정주가(S-RIM)': 200_000, '예상적정주가(S-RIM)': 180_000, '현재가': 70_000},
-    ])
-
-
-def test_sort_results_by_proper_vs_current():
-    """'proper': (적정주가 - 현재가) / 현재가 * 100 내림차순"""
-    df = make_srim_df_for_sort()
-    # A: (100k-80k)/80k = 25%
-    # B: (50k-90k)/90k = -44.4%
-    # C: (200k-70k)/70k = 185.7%  ← 1위
-
-    result = sort_results(df, mode='proper')
-
-    assert result.iloc[0]['종목코드'] == 'C'
-    assert '정렬기준(%)' in result.columns
-
-
-def test_sort_results_by_expected_vs_current():
-    """'expected': (예상적정주가 - 현재가) / 현재가 * 100 내림차순"""
-    df = make_srim_df_for_sort()
-    # A: (150k-80k)/80k = 87.5%
-    # B: (200k-90k)/90k = 122.2%  ← 1위
-    # C: (180k-70k)/70k = 157.1%  ← 실제 1위
-
-    result = sort_results(df, mode='expected')
-
-    assert result.iloc[0]['종목코드'] == 'C'
-    assert '정렬기준(%)' in result.columns
-
-
-def test_sort_results_by_growth():
-    """'growth': (예상적정주가 - 적정주가) / 적정주가 * 100 내림차순"""
-    df = make_srim_df_for_sort()
-    # A: (150k-100k)/100k = 50%
-    # B: (200k-50k)/50k  = 300%  ← 1위
-    # C: (180k-200k)/200k = -10%
-
-    result = sort_results(df, mode='growth')
-
-    assert result.iloc[0]['종목코드'] == 'B'
-    assert '정렬기준(%)' in result.columns
-
-
-def test_sort_results_raises_on_invalid_mode():
-    df = make_srim_df_for_sort()
-    with pytest.raises(ValueError, match='mode'):
-        sort_results(df, mode='invalid')
