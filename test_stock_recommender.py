@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 from bs4 import BeautifulSoup
 from unittest.mock import MagicMock
-from stock_recommender import fetch_current_price, StockRecommender
+from stock_recommender import fetch_current_price, StockRecommender, sort_results, SORT_MODES
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────────
@@ -81,6 +81,64 @@ def test_recommender_sorts_by_upside_percentage_not_absolute():
     # B가 먼저 와야 함 (절대차: A=50,000 > B=15,000이지만 %: B=300% > A=50%)
     assert result.iloc[0]['종목코드'] == 'B'
     assert result.iloc[1]['종목코드'] == 'A'
+
+
+# ── sort_results ──────────────────────────────────────────────────────────────
+
+def make_sort_df():
+    return pd.DataFrame([
+        {'종목코드': 'A', '종목명': 'α', '시장': 'KOSPI',
+         '적정주가(S-RIM)': 100_000, '예상적정주가(S-RIM)': 150_000, '현재가': 80_000},
+        {'종목코드': 'B', '종목명': 'β', '시장': 'KOSPI',
+         '적정주가(S-RIM)': 50_000,  '예상적정주가(S-RIM)': 200_000, '현재가': 90_000},
+        {'종목코드': 'C', '종목명': 'γ', '시장': 'KOSPI',
+         '적정주가(S-RIM)': 200_000, '예상적정주가(S-RIM)': 180_000, '현재가': 70_000},
+    ])
+
+
+def test_sort_results_proper_sorts_by_proper_price_vs_current():
+    """'proper': (적정주가 - 현재가) / 현재가 * 100 내림차순. C 1위(+185.7%)"""
+    result = sort_results(make_sort_df(), mode='proper')
+    assert result.iloc[0]['종목코드'] == 'C'
+    assert '정렬기준(%)' in result.columns
+
+
+def test_sort_results_expected_sorts_by_expected_price_vs_current():
+    """'expected': (예상적정주가 - 현재가) / 현재가 * 100 내림차순. C 1위(+157.1%)"""
+    result = sort_results(make_sort_df(), mode='expected')
+    assert result.iloc[0]['종목코드'] == 'C'
+    assert '정렬기준(%)' in result.columns
+
+
+def test_sort_results_growth_sorts_by_expected_vs_proper():
+    """'growth': (예상적정주가 - 적정주가) / 적정주가 * 100 내림차순. B 1위(+300%)"""
+    result = sort_results(make_sort_df(), mode='growth')
+    assert result.iloc[0]['종목코드'] == 'B'
+    assert '정렬기준(%)' in result.columns
+
+
+def test_sort_results_excludes_rows_with_zero_denominator():
+    """분모가 0인 행은 결과에서 제외한다"""
+    df = make_sort_df().copy()
+    df.loc[0, '현재가'] = 0  # A: 현재가=0 → proper/expected 정렬 시 제외
+
+    result = sort_results(df, mode='proper')
+
+    assert 'A' not in result['종목코드'].tolist()
+
+
+def test_sort_results_raises_on_invalid_mode():
+    """유효하지 않은 mode는 ValueError를 발생시킨다"""
+    with pytest.raises(ValueError, match='mode'):
+        sort_results(make_sort_df(), mode='invalid')
+
+
+def test_sort_results_growth_does_not_need_current_price():
+    """'growth' 모드는 현재가 컬럼 없이도 동작한다"""
+    df = make_sort_df().drop(columns=['현재가'])
+    result = sort_results(df, mode='growth')
+    assert len(result) > 0
+    assert result.iloc[0]['종목코드'] == 'B'
 
 
 def test_recommender_excludes_stocks_with_no_expected_roe():

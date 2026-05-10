@@ -28,6 +28,40 @@ OUTPUT_COLUMNS = [
     '상승여력(%)',
 ]
 
+SORT_MODES = {
+    'proper':   ('적정주가(S-RIM)',    '현재가',           '(적정주가 - 현재가) / 현재가'),
+    'expected': ('예상적정주가(S-RIM)', '현재가',           '(예상적정주가 - 현재가) / 현재가'),
+    'growth':   ('예상적정주가(S-RIM)', '적정주가(S-RIM)',  '(예상적정주가 - 적정주가) / 적정주가'),
+}
+
+
+def sort_results(df: pd.DataFrame, mode: str) -> pd.DataFrame:
+    """
+    S-RIM 결과를 지정한 기준으로 정렬한 DataFrame 반환.
+
+    mode:
+      'proper'   : (적정주가(S-RIM) - 현재가) / 현재가 * 100
+      'expected' : (예상적정주가(S-RIM) - 현재가) / 현재가 * 100
+      'growth'   : (예상적정주가(S-RIM) - 적정주가(S-RIM)) / 적정주가(S-RIM) * 100
+
+    분모가 0인 행은 제외. 결과에 '정렬기준(%)' 컬럼 추가.
+    """
+    if mode not in SORT_MODES:
+        raise ValueError(f"mode='{mode}' 는 유효하지 않습니다. 선택: {list(SORT_MODES)}")
+
+    numerator_col, denominator_col, description = SORT_MODES[mode]
+
+    if denominator_col not in df.columns:
+        raise ValueError(f"'{denominator_col}' 컬럼이 없습니다. mode='{mode}' 사용 불가.")
+
+    df = df[df[denominator_col] > 0].copy()
+    df['정렬기준(%)'] = (
+        (df[numerator_col] - df[denominator_col]) / df[denominator_col] * 100
+    ).round(2)
+
+    logger.info(f"정렬 기준: {description} ({len(df)}개 종목)")
+    return df.sort_values('정렬기준(%)', ascending=False).reset_index(drop=True)
+
 
 def _get_naver_price_page(stock_code: str, session: requests.Session):
     """Naver Finance 종목 페이지 가져오기"""
@@ -120,21 +154,30 @@ class StockRecommender:
         df = df.sort_values('상승여력(%)', ascending=False)
         return df.reset_index(drop=True)
 
-    def run(self, srim_csv: str, output_csv: str) -> pd.DataFrame:
-        """전체 파이프라인: 현재가 수집 → 상승여력 계산 → 저장"""
+    def run(self, srim_csv: str, output_csv: str, sort: str = 'expected') -> pd.DataFrame:
+        """
+        전체 파이프라인: 현재가 수집 → 정렬 → 저장.
+
+        sort: 'proper' | 'expected' | 'growth'  (기본: 'expected')
+          proper   - (적정주가 - 현재가) / 현재가 * 100
+          expected - (예상적정주가 - 현재가) / 현재가 * 100
+          growth   - (예상적정주가 - 적정주가) / 적정주가 * 100  (현재가 불필요)
+        """
         df = self.load_srim_results(srim_csv)
         logger.info(f"S-RIM 결과 로드: {len(df)}개 종목")
 
-        # 현재가 수집
-        logger.info("Naver Finance에서 현재가 수집 중...")
-        prices = self.fetch_all_prices(df['종목코드'].tolist())
-        df['현재가'] = df['종목코드'].map(prices).fillna(0).astype(int)
+        # growth 모드는 현재가 불필요
+        if sort in ('proper', 'expected'):
+            logger.info("Naver Finance에서 현재가 수집 중...")
+            prices = self.fetch_all_prices(df['종목코드'].tolist())
+            df['현재가'] = df['종목코드'].map(prices).fillna(0).astype(int)
 
-        # 상승여력 계산 및 정렬
-        result = self.calculate_upside(df)
+        result = sort_results(df, mode=sort)
 
-        # 출력 컬럼 선택 및 저장
-        save_cols = [c for c in OUTPUT_COLUMNS if c in result.columns]
+        # 출력 컬럼 선택 (정렬기준 포함) 및 저장
+        extra = ['정렬기준(%)']
+        base_cols = [c for c in OUTPUT_COLUMNS if c in result.columns]
+        save_cols = base_cols + [c for c in extra if c in result.columns]
         result[save_cols].to_csv(output_csv, index=False, encoding='utf-8-sig')
         logger.info(f"추천 종목 저장: {output_csv} ({len(result)}개)")
         return result
@@ -146,16 +189,28 @@ if __name__ == '__main__':
     parser.add_argument('--output', default='stock_recommendations.csv')
     parser.add_argument('--top', type=int, default=50, help='상위 N개 출력')
     parser.add_argument('--workers', type=int, default=10)
+    parser.add_argument(
+        '--sort',
+        choices=list(SORT_MODES),
+        default='expected',
+        help=(
+            'proper   : (적정주가 - 현재가) / 현재가 %% 내림차순  [현재가 자동 수집]\n'
+            'expected : (예상적정주가 - 현재가) / 현재가 %% 내림차순  [현재가 자동 수집] (기본값)\n'
+            'growth   : (예상적정주가 - 적정주가) / 적정주가 %% 내림차순  [현재가 불필요, 빠름]'
+        ),
+    )
     args = parser.parse_args()
 
     rec = StockRecommender(max_workers=args.workers)
-    result = rec.run(args.srim_csv, args.output)
+    result = rec.run(args.srim_csv, args.output, sort=args.sort)
 
-    display_cols = [c for c in OUTPUT_COLUMNS if c in result.columns]
+    display_cols = [c for c in OUTPUT_COLUMNS if c in result.columns] + ['정렬기준(%)']
+    display_cols = [c for c in display_cols if c in result.columns]
     top = result[display_cols].head(args.top)
 
-    print(f"\n📈 S-RIM 예상 상승여력 상위 {min(args.top, len(result))}개 종목")
-    print("=" * 100)
+    print(f"\nS-RIM 상위 {min(args.top, len(result))}개 종목  "
+          f"[정렬: {args.sort} — {SORT_MODES[args.sort][2]}]")
+    print("=" * 110)
     print(top.to_string(index=False))
-    print("=" * 100)
+    print("=" * 110)
     print(f"\n저장 파일: {args.output}")
