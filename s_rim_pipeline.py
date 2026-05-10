@@ -73,6 +73,46 @@ def merge_inputs(roe_df: pd.DataFrame, fundamentals_df: pd.DataFrame) -> pd.Data
     return pd.merge(roe_df, fundamentals_df, on='종목코드', how='inner')
 
 
+SORT_MODES = {
+    'proper':   ('적정주가(S-RIM)',   '현재가',          '(적정주가 - 현재가) / 현재가'),
+    'expected': ('예상적정주가(S-RIM)', '현재가',          '(예상적정주가 - 현재가) / 현재가'),
+    'growth':   ('예상적정주가(S-RIM)', '적정주가(S-RIM)', '(예상적정주가 - 적정주가) / 적정주가'),
+}
+
+
+def sort_results(df: pd.DataFrame, mode: str) -> pd.DataFrame:
+    """
+    S-RIM 결과를 지정한 기준으로 정렬한 DataFrame 반환.
+
+    mode:
+      'proper'   : (적정주가(S-RIM) - 현재가) / 현재가 * 100
+      'expected' : (예상적정주가(S-RIM) - 현재가) / 현재가 * 100
+      'growth'   : (예상적정주가(S-RIM) - 적정주가(S-RIM)) / 적정주가(S-RIM) * 100
+
+    '현재가' 컬럼이 없으면 proper/expected 정렬 불가 → ValueError.
+    분모가 0인 행은 제외.
+    결과에 '정렬기준(%)' 컬럼 추가.
+    """
+    if mode not in SORT_MODES:
+        raise ValueError(f"mode='{mode}' 는 유효하지 않습니다. 선택: {list(SORT_MODES)}")
+
+    numerator_col, denominator_col, description = SORT_MODES[mode]
+
+    if denominator_col not in df.columns:
+        raise ValueError(f"'{denominator_col}' 컬럼이 없습니다. mode='{mode}' 사용 불가.")
+
+    df = df.copy()
+    mask = df[denominator_col] > 0
+    df = df[mask].copy()
+
+    df['정렬기준(%)'] = (
+        (df[numerator_col] - df[denominator_col]) / df[denominator_col] * 100
+    ).round(2)
+
+    logger.info(f"정렬 기준: {description} ({len(df)}개 종목)")
+    return df.sort_values('정렬기준(%)', ascending=False).reset_index(drop=True)
+
+
 class SRIMPipeline:
     def __init__(self, roe_csv: str, fundamentals_csv: str):
         self.roe_csv = roe_csv
@@ -110,12 +150,37 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='S-RIM 적정 주가 계산 파이프라인')
     parser.add_argument('--roe-csv', required=True)
     parser.add_argument('--fundamentals-csv', required=True)
+    parser.add_argument(
+        '--sort',
+        choices=list(SORT_MODES),
+        default=None,
+        help=(
+            'proper   : (적정주가 - 현재가) / 현재가 %% 내림차순  [현재가 필요]\n'
+            'expected : (예상적정주가 - 현재가) / 현재가 %% 내림차순  [현재가 필요]\n'
+            'growth   : (예상적정주가 - 적정주가) / 적정주가 %% 내림차순'
+        ),
+    )
+    parser.add_argument('--workers', type=int, default=10, help='현재가 병렬 조회 워커 수')
     args = parser.parse_args()
 
     pipeline = SRIMPipeline(args.roe_csv, args.fundamentals_csv)
     results = pipeline.run()
+
+    # 현재가가 필요한 정렬 모드: stock_recommender 의 fetch 함수 재사용
+    if args.sort in ('proper', 'expected'):
+        from stock_recommender import StockRecommender
+        rec = StockRecommender(max_workers=args.workers)
+        logger.info("현재가 병렬 조회 중...")
+        prices = rec.fetch_all_prices(results['종목코드'].tolist())
+        results['현재가'] = results['종목코드'].map(prices).fillna(0).astype(int)
+
+    if args.sort:
+        results = sort_results(results, mode=args.sort)
+
     out = f"srim_results_{pipeline.discount_rate}.csv"
     pipeline.save(results, out)
     print(results.to_string(index=False))
     print(f"\n할인율: {pipeline.discount_rate}%")
+    if args.sort:
+        print(f"정렬: {args.sort}  ({SORT_MODES[args.sort][2]})")
     print(f"결과 저장: {out}")
