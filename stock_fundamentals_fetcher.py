@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 FnGuide에서 종목별 자본총계(지배주주지분)와 총주식수를 수집
-URL: https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{code}&...
+- Snapshot HTML : https://wcomp.fnguide.com/CompanyInfo/Snapshot?cmp_cd={code} (발행주식수, 자사주)
+- 재무 API      : https://wcomp.fnguide.com/CompanyInfo/getSnpFinancial (지배주주지분, 예상 ROE)
 """
 
 import re
@@ -15,16 +16,12 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import fnguide
+
 warnings.filterwarnings('ignore', message='.*OpenSSL.*')
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
-
-FNGUIDE_URL = (
-    "https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp"
-    "?pGB=1&gicode=A{code}&cID=&MenuYn=Y&ReportGB=&NewMenuID=11&stkGb=701"
-)
-
 
 class StockFundamentalsFetcher:
     def __init__(self, max_workers: int = 5):
@@ -42,10 +39,10 @@ class StockFundamentalsFetcher:
     # ── 페이지 fetch ───────────────────────────────────────────────────────────
 
     def get_page(self, stock_code: str):
-        url = FNGUIDE_URL.format(code=stock_code)
+        """Snapshot HTML (시세현황, 주주구분 현황 포함)"""
         for attempt in range(3):
             try:
-                resp = self.session.get(url, timeout=15)
+                resp = self.session.get(fnguide.SNAPSHOT_URL, params={'cmp_cd': stock_code}, timeout=15)
                 resp.raise_for_status()
                 resp.encoding = 'utf-8'
                 return BeautifulSoup(resp.text, 'html.parser')
@@ -54,6 +51,10 @@ class StockFundamentalsFetcher:
                 if attempt < 2:
                     time.sleep(3 * (attempt + 1))
         return None
+
+    def get_financial(self, stock_code: str):
+        """연간 8개 컬럼(실적 + 컨센서스 추정치) 재무 dataset"""
+        return fnguide.get_financial(self.session, stock_code, freq_typ='Y')
 
     # ── 파싱 메서드 ────────────────────────────────────────────────────────────
 
@@ -143,7 +144,9 @@ class StockFundamentalsFetcher:
                 cells = row.find_all(['td', 'th'])
                 if not cells:
                     continue
-                if '자기주식' in cells[0].get_text(strip=True) and len(cells) > 2:
+                label = cells[0].get_text(strip=True)
+                # 구버전: '자기주식 (자사주+자사주신탁)', 신버전: '자사주(자사주+자사주신탁)'
+                if ('자기주식' in label or label.startswith('자사주(')) and len(cells) > 2:
                     val = cells[2].get_text(strip=True).replace(',', '')
                     if val.isdigit():
                         return int(val)
@@ -216,18 +219,62 @@ class StockFundamentalsFetcher:
         logger.warning(f"{stock_code}: 예상 ROE를 계산할 수 없습니다.")
         return 0.0
 
+    @staticmethod
+    def _actual_columns(dataset):
+        """실적(추정 E/잠정 P 아님) 컬럼의 값 키 목록 (VAL1, VAL2, ...)"""
+        return [h['CD'] for h in dataset.get('header', [])
+                if (h.get('EP_CHK') or '').strip() not in ('E', 'P')]
+
+    def find_equity_from_financial(self, dataset, stock_code: str) -> float:
+        """가장 최신 실적 연도의 자본총계(지배) 를 억원 → 원으로 변환. 없으면 0.0.
+        비12월 결산 종목도 실적 컬럼 중 마지막을 사용하므로 올바르게 처리된다."""
+        row = fnguide.find_row(dataset, '자본총계(지배)')
+        actual = self._actual_columns(dataset)
+        if row and actual:
+            value = fnguide.to_float(row.get(actual[-1]))
+            if value is not None:
+                return value * 1e8  # 억원 → 원
+        logger.warning(f"{stock_code}: 지배주주지분 값을 찾지 못했습니다.")
+        return 0.0
+
+    def find_future_roe_from_financial(self, dataset, stock_code: str) -> float:
+        """
+        연간 8개 컬럼 dataset 에서 미래 예상 ROE 계산.
+          지배주주순이익 = 마지막(가장 미래) 컬럼
+          전기말/당기말 지배주주지분 = 값이 있는 마지막 두 컬럼
+          예상ROE(%) = 지배주주순이익 / ((전기말 + 당기말) / 2) * 100
+        """
+        header = dataset.get('header', [])
+        net_row = fnguide.find_row(dataset, '당기순이익(지배)')
+        equity_row = fnguide.find_row(dataset, '자본총계(지배)')
+        if header and net_row and equity_row:
+            net_income = fnguide.to_float(net_row.get(header[-1]['CD']))
+            equities = [v for v in (fnguide.to_float(equity_row.get(h['CD'])) for h in header) if v is not None]
+            if net_income and len(equities) >= 2:
+                avg_equity = (equities[-2] + equities[-1]) / 2
+                if avg_equity > 0:
+                    roe = net_income / avg_equity * 100
+                    logger.info(
+                        f"{stock_code}: 예상ROE={roe:.2f}% "
+                        f"(순이익={net_income:,.0f}, 평균자기자본={avg_equity:,.0f})"
+                    )
+                    return round(roe, 2)
+        logger.warning(f"{stock_code}: 예상 ROE를 계산할 수 없습니다.")
+        return 0.0
+
     # ── 단일 종목 수집 ─────────────────────────────────────────────────────────
 
     def fetch(self, stock_code: str) -> dict:
-        """종목코드로 FnGuide 페이지 조회 후 재무 기초 데이터 반환"""
+        """종목코드로 FnGuide Snapshot 페이지와 재무 API 조회 후 재무 기초 데이터 반환"""
         soup = self.get_page(stock_code)
-        if soup is None:
+        dataset = self.get_financial(stock_code)
+        if soup is None or not dataset:
             return {'종목코드': stock_code, '자본총계(원)': 0.0, '총주식수': 0, '예상ROE(%)': 0.0}
 
-        equity = self.find_equity(soup, stock_code)
+        equity = self.find_equity_from_financial(dataset, stock_code)
         issued = self.find_issued_shares(soup)
         treasury = self.find_treasury_shares(soup)
-        future_roe = self.find_future_roe(soup, stock_code)
+        future_roe = self.find_future_roe_from_financial(dataset, stock_code)
 
         return {
             '종목코드': stock_code,

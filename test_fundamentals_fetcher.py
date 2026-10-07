@@ -273,76 +273,92 @@ def test_find_future_roe_calculates_from_last_two_estimates():
     assert roe == pytest.approx(expected, rel=1e-3)
 
 
-def make_full_page_soup(equity_map, issued_common, issued_preferred, treasury,
-                        net_income_by_year, equity_by_year_extended):
-    """전체 페이지 구조 모킹 (시세현황 + 주주구분 + Financial Highlight + Annual 확장)"""
-    annual_count = len(equity_map)
-    year_header_fh = "".join(f"<th>{y}</th>" for y in sorted(equity_map.keys()))
-    equity_vals_fh = "".join(f"<td>{equity_map[y]:,}</td>" for y in sorted(equity_map.keys()))
+# ── FnGuide 신버전 (Snapshot HTML + getSnpFinancial API) ─────────────────────
 
-    years_ext = sorted(net_income_by_year.keys())
-    year_header_ext = "".join(f"<th>{y}</th>" for y in years_ext)
-    ni_vals = "".join(f"<td>{net_income_by_year[y]:,}</td>" for y in years_ext)
-    eq_vals = "".join(f"<td>{equity_by_year_extended[y]:,}</td>" for y in years_ext)
-    padding = "".join("<tr><td></td></tr>" for _ in range(20))
-
-    html = f"""<html><body>
-    <table class="us_table_ty1">
-      <tr><td>발행주식수(보통주/ 우선주)</td><td>{issued_common:,}/ {issued_preferred:,}</td></tr>
+def make_snapshot_html(issued_common, issued_preferred, treasury):
+    """신버전 Snapshot 페이지 구조 모킹 (시세현황 + 주주현황 상위 6 + 주주구분 현황)"""
+    return f"""<html><body>
+    <h1 id="giName">삼성전자</h1>
+    <table><caption>시세현황</caption>
+      <tr><th><div>발행주식수<span>(보통주/ 우선주)</span></div></th>
+          <td>{issued_common:,}/&nbsp; {issued_preferred:,}</td></tr>
     </table>
-    <table class="us_table_ty1">
-      <tr><th>주주구분</th><th>대표주주수</th><th>보통주</th><th>지분율</th></tr>
-      <tr><td>자기주식 (자사주+자사주신탁)</td><td>1</td><td>{treasury:,}</td><td>1.40</td></tr>
+    <table><caption>주주현황</caption>
+      <tr><th>항목</th><th>보통주</th><th>지분율</th><th>최종변동일</th></tr>
+      <tr><td>자사주</td><td>{treasury:,}</td><td>2.32</td><td>2026/10/02</td></tr>
     </table>
-    <!-- Financial Highlight (Annual+NetQ) -->
-    <table class="us_table_ty1">
-      <tr>
-        <th colspan="1">IFRS(연결)</th>
-        <th colspan="{annual_count}">Annual</th>
-        <th colspan="4">Net Quarter</th>
-      </tr>
-      <tr>{year_header_fh}</tr>
-      <tr><td>지배주주지분</td>{equity_vals_fh}</tr>
-      {padding}
-    </table>
-    <!-- Annual 확장 (Net Quarter 없음) -->
-    <table class="us_table_ty1">
-      <tr>
-        <th colspan="1">IFRS(연결)</th>
-        <th colspan="{len(years_ext)}">Annual</th>
-      </tr>
-      <tr>{year_header_ext}</tr>
-      <tr><td>지배주주순이익</td>{ni_vals}</tr>
-      <tr><td>지배주주지분</td>{eq_vals}</tr>
-      {padding}
+    <table><caption>주주현황</caption>
+      <tr><th>주주구분</th><th>대표주주수</th><th>보통주</th><th>지분율</th><th>최종변동일</th></tr>
+      <tr><td>자사주(자사주+자사주신탁)</td><td>1</td><td>{treasury:,}</td><td>2.32</td><td>2026/10/02</td></tr>
     </table>
     </body></html>"""
-    return BeautifulSoup(html, 'html.parser')
 
 
-def test_fetch_returns_equity_and_total_shares(monkeypatch):
-    """fetch()가 자본총계(원), 총주식수, 예상ROE(%)를 반환한다"""
+def make_annual_dataset(columns):
+    """getSnpFinancial(freq_typ=Y) dataset 모킹.
+    columns: [(YYMM, EP_CHK, 당기순이익(지배), 자본총계(지배)), ...] (값 단위: 억원, 문자열 또는 None)"""
+    header = [{"YYMM": yymm, "EP_CHK": ep, "CD": f"VAL{i}"} for i, (yymm, ep, _, _) in enumerate(columns, 1)]
+    net_income = {"NAME": "  당기순이익(지배)", **{f"VAL{i}": c[2] for i, c in enumerate(columns, 1)}}
+    equity = {"NAME": "  자본총계(지배)", **{f"VAL{i}": c[3] for i, c in enumerate(columns, 1)}}
+    return {"header": header, "data": [{"NAME": "매출액"}, net_income, equity]}
+
+
+SAMSUNG_ANNUAL = make_annual_dataset([
+    ("2023/12", " ", "144734.01", "3532337.75"),
+    ("2024/12", " ", "336213.63", "3916876.03"),
+    ("2025/12", " ", "442609.56", "4243132.55"),
+    ("2026/12", "E", "3125023.81", "7074608.20"),
+    ("2027/12", "E", "4455131.71", "10878945.55"),
+    ("2028/12", "E", "4866517.82", "14997323.12"),
+])
+
+
+def test_shouldReturnFundamentalsWhenFnguideSnapshotAndFinancialApiRespond():
+    # API 레벨: Snapshot HTML(발행주식수/자사주) + 재무 API(지배주주지분/예상ROE)를 조합한다
     fetcher = make_fetcher(year=2026)
-    mock_soup = make_full_page_soup(
-        equity_map={'2023/12': 3_532_338, '2024/12': 3_916_876, '2025/12': 4_243_133},
-        issued_common=5_846_278_608,
-        issued_preferred=802_371_203,
-        treasury=82_086_705,
-        net_income_by_year={
-            '2023/12': 144_734, '2024/12': 336_214, '2025/12': 442_610,
-            '2026/12(E)': 2_771_227, '2027/12(E)': 3_463_287, '2028/12(E)': 3_413_255,
-        },
-        equity_by_year_extended={
-            '2023/12': 3_532_338, '2024/12': 3_916_876, '2025/12': 4_243_133,
-            '2026/12(E)': 6_826_716, '2027/12(E)': 9_981_304, '2028/12(E)': 13_223_566,
-        },
-    )
-    monkeypatch.setattr(fetcher, 'get_page', lambda code: mock_soup)
+    snapshot = MagicMock(text=make_snapshot_html(5_846_278_608, 802_371_203, 135_670_794))
+    financial = MagicMock()
+    financial.json.return_value = {"dataset": SAMSUNG_ANNUAL}
 
-    result = fetcher.fetch('005930')
+    def fake_get(url, params=None, timeout=None):
+        assert params["cmp_cd"] == "005930"
+        return {"Snapshot": snapshot, "getSnpFinancial": financial}[url.rsplit("/", 1)[-1]]
 
-    assert result['종목코드'] == '005930'
-    assert result['자본총계(원)'] == 4_243_133 * 1e8
-    assert result['총주식수'] == 5_846_278_608 - 82_086_705
-    expected_roe = 3_413_255 / ((9_981_304 + 13_223_566) / 2) * 100
-    assert result['예상ROE(%)'] == pytest.approx(expected_roe, rel=1e-3)
+    fetcher.session = MagicMock()
+    fetcher.session.get.side_effect = fake_get
+
+    result = fetcher.fetch("005930")
+
+    assert result == {
+        "종목코드": "005930",
+        "자본총계(원)": pytest.approx(4243132.55 * 1e8),
+        "총주식수": 5_846_278_608 - 135_670_794,
+        "예상ROE(%)": round(4866517.82 / ((10878945.55 + 14997323.12) / 2) * 100, 2),
+    }
+
+
+def test_shouldReturnTreasurySharesWhenLabelIsJasajuWithTrust():
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(make_snapshot_html(1_000, 0, 77), "html.parser")
+
+    assert make_fetcher().find_treasury_shares(soup) == 77
+
+
+def test_shouldReturnLatestActualEquityWhenFiscalYearIsNotDecember():
+    dataset = make_annual_dataset([
+        ("2025/02", " ", "772.31", "1829.99"),
+        ("2026/02", " ", "48.46", "1714.35"),
+        ("2027/02", "E", None, None),
+    ])
+
+    assert make_fetcher().find_equity_from_financial(dataset, "950170") == pytest.approx(1714.35 * 1e8)
+
+
+def test_shouldReturnZeroFutureRoeWhenLastEstimateIsNull():
+    dataset = make_annual_dataset([
+        ("2025/02", " ", "772.31", "1829.99"),
+        ("2026/02", " ", "48.46", "1714.35"),
+        ("2027/02", "E", None, None),
+    ])
+
+    assert make_fetcher().find_future_roe_from_financial(dataset, "950170") == 0.0
