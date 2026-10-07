@@ -30,3 +30,19 @@ HTML 테이블 스크래핑이 실패(종목 0개)하므로, `stock_list_manual.
 - [x] totalCount가 pageSize보다 크면 모든 페이지를 가져온다
 - [x] 6자리 숫자가 아닌 코드, 빈 종목명, 중복 코드는 건너뛴다
 - [x] 빈 페이지를 만나면 페이징을 중단한다
+
+---
+
+# FnGuide 신버전 재무 API 전환 plan
+
+## 목표
+FnGuide 구버전 페이지(`comp.fnguide.com/SVO2/ASP/SVD_Main.asp`)가 폐지되어 "페이지가 없습니다" 안내만 반환하므로
+(모든 종목 ROE 0%), `stock_roe_analyzer_final.py`가 신버전 재무 API
+(`wcomp.fnguide.com/CompanyInfo/getSnpFinancial?cmp_cd=...&consol_typ=C&freq_typ=A`)에서 ROE를 읽도록 교체한다.
+
+## 테스트 목록
+
+- [x] FnGuide 재무 API가 응답하면 목표 연도 ROE를 반환한다 (API 레벨, 결함 재현)
+- [x] API 응답이 JSON이 아니면(ETF 등) ROE를 0.0으로 처리한다
+- [x] 목표 연도 ROE 값이 null이면 0.0을 반환한다
+- [x] 목표 연도 컬럼이 없으면 0.0을 반환한다
