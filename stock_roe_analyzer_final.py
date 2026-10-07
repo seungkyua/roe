@@ -15,6 +15,8 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
+import fnguide
+
 # SSL 경고 억제
 warnings.filterwarnings('ignore', message='.*OpenSSL.*')
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -58,39 +60,9 @@ class StockROEAnalyzerFinal:
             logger.error("01_stock_list_manual.py를 찾을 수 없습니다.")
             return pd.DataFrame()
     
-    # FnGuide 구버전(comp.fnguide.com/SVO2) 페이지가 폐지되어 신버전 Snapshot 이 사용하는 재무 API 사용
-    FNGUIDE_FINANCIAL_API = "https://wcomp.fnguide.com/CompanyInfo/getSnpFinancial"
-
     def get_fnguide_financial(self, stock_code):
         """FnGuide 재무 하이라이트(연결, 연간) dataset 가져오기. 데이터가 없으면 None."""
-        max_retries = 3
-        retry_delay = 5  # 재시도 간 대기 시간 (초)
-
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"종목코드 {stock_code} 재무 데이터 요청 중... (시도 {attempt + 1}/{max_retries})")
-                response = self.session.get(
-                    self.FNGUIDE_FINANCIAL_API,
-                    params={'cmp_cd': stock_code, 'consol_typ': 'C', 'freq_typ': 'A'},
-                    timeout=15,
-                )
-                response.raise_for_status()
-            except Exception as e:
-                logger.error(f"종목코드 {stock_code} 재무 데이터 요청 실패 (시도 {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # 지수적 백오프
-                continue
-
-            # ETF 등 재무 데이터가 없는 종목은 빈 응답(JSON 아님)이 오므로 재시도하지 않는다
-            try:
-                return response.json().get('dataset')
-            except ValueError:
-                logger.info(f"종목코드 {stock_code} 재무 데이터 없음")
-                return None
-
-        logger.error(f"종목코드 {stock_code} 최대 재시도 횟수 초과")
-        return None
+        return fnguide.get_financial(self.session, stock_code, freq_typ='A')
 
     def find_roe_from_financial(self, dataset, stock_code):
         """재무 dataset 에서 target_year 컬럼의 ROE 값 추출. 없으면 0.0."""
@@ -101,19 +73,17 @@ class StockROEAnalyzerFinal:
             logger.warning(f"종목코드 {stock_code}: {self.target_year}년 컬럼이 없습니다. {header_yymm}")
             return 0.0
 
-        value_key = dataset['header'][target_idx].get('CD')
-        for row in dataset.get('data', []):
-            if (row.get('NAME') or '').strip() == 'ROE':
-                value = row.get(value_key)
-                if value is None:
-                    logger.warning(f"종목코드 {stock_code}: {self.target_period} ROE 값이 비어 있습니다.")
-                    return 0.0
-                roe_value = float(value)
-                logger.info(f"종목코드 {stock_code}: {self.target_period} ROE 값 발견: {roe_value}%")
-                return roe_value
+        roe_row = fnguide.find_row(dataset, 'ROE')
+        if roe_row is None:
+            logger.warning(f"종목코드 {stock_code}: ROE 행을 찾지 못했습니다.")
+            return 0.0
 
-        logger.warning(f"종목코드 {stock_code}: ROE 행을 찾지 못했습니다.")
-        return 0.0
+        roe_value = fnguide.to_float(roe_row.get(dataset['header'][target_idx].get('CD')))
+        if roe_value is None:
+            logger.warning(f"종목코드 {stock_code}: {self.target_period} ROE 값이 비어 있습니다.")
+            return 0.0
+        logger.info(f"종목코드 {stock_code}: {self.target_period} ROE 값 발견: {roe_value}%")
+        return roe_value
 
     def find_target_year_column(self, header_cells):
         """헤더 셀 텍스트 리스트에서 target_year를 포함하는 컬럼 인덱스 반환. 없으면 None."""
