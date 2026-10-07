@@ -5,9 +5,7 @@
 
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 import time
-import re
 import logging
 import json
 import importlib
@@ -117,39 +115,6 @@ class StockROEAnalyzerFinal:
         logger.warning(f"종목코드 {stock_code}: ROE 행을 찾지 못했습니다.")
         return 0.0
 
-    def get_fnguide_page(self, stock_code):
-        """FnGuide에서 특정 종목 페이지 가져오기 (재시도 로직 포함)"""
-        max_retries = 3
-        retry_delay = 5  # 재시도 간 대기 시간 (초)
-        
-        for attempt in range(max_retries):
-            try:
-                url = f"https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}&cID=&MenuYn=Y&ReportGB=&NewMenuID=11&stkGb=701"
-                
-                if attempt > 0:
-                    logger.info(f"종목코드 {stock_code} 재시도 {attempt + 1}/{max_retries}...")
-                else:
-                    logger.info(f"종목코드 {stock_code} 페이지 요청 중...")
-                
-                response = self.session.get(url, timeout=15)  # 타임아웃 증가
-                response.raise_for_status()
-                
-                logger.info("페이지 로드 성공")
-                return BeautifulSoup(response.text, 'html.parser')
-                
-            except Exception as e:
-                logger.error(f"종목코드 {stock_code} 페이지 로드 실패 (시도 {attempt + 1}/{max_retries}): {e}")
-                
-                if attempt < max_retries - 1:
-                    logger.info(f"{retry_delay}초 후 재시도...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # 지수적 백오프
-                else:
-                    logger.error(f"종목코드 {stock_code} 최대 재시도 횟수 초과")
-                    return None
-        
-        return None
-    
     def find_target_year_column(self, header_cells):
         """헤더 셀 텍스트 리스트에서 target_year를 포함하는 컬럼 인덱스 반환. 없으면 None."""
         year_str = str(self.target_year)
@@ -158,83 +123,6 @@ class StockROEAnalyzerFinal:
                 return idx
         return None
 
-    def find_roe_dynamic_year(self, soup, stock_code):
-        """동적 연도 기반 ROE 값 찾기"""
-        logger.info(f"종목코드 {stock_code}의 {self.target_period} ROE 값 검색 중...")
-        
-        try:
-            tables = soup.find_all('table')
-            logger.info(f"총 {len(tables)}개 테이블 발견")
-            
-            for table_idx, table in enumerate(tables):
-                rows = table.find_all('tr')
-                
-                # 테이블 11과 같은 구조 찾기 (IFRS(연결) + Annual + Net Quarter)
-                if len(rows) >= 20:  # 충분한 행이 있는 테이블
-                    header_row = rows[0]
-                    header_cells = header_row.find_all(['td', 'th'])
-                    
-                    # 헤더에서 IFRS(연결), Annual, Net Quarter 확인
-                    header_texts = [cell.get_text(strip=True) for cell in header_cells]
-                    
-                    if ('IFRS(연결)' in header_texts and 
-                        'Annual' in header_texts and 
-                        'Net Quarter' in header_texts):
-                        
-                        logger.info(f"재무 테이블 발견! (테이블 {table_idx + 1})")
-
-                        # 연도 레이블 행 탐색: target_year 문자열을 포함하는 첫 번째 행
-                        year_row_texts = None
-                        for row in rows:
-                            row_texts = [c.get_text(strip=True) for c in row.find_all(['td', 'th'])]
-                            if any(str(self.target_year) in t for t in row_texts):
-                                year_row_texts = row_texts
-                                break
-
-                        if year_row_texts is None:
-                            logger.warning(f"테이블 {table_idx + 1}에서 {self.target_year}년 레이블 행을 찾을 수 없습니다.")
-                            continue
-
-                        target_column_idx = self.find_target_year_column(year_row_texts)
-                        if target_column_idx is None:
-                            logger.warning(f"{self.target_year}년 컬럼을 찾을 수 없습니다: {year_row_texts}")
-                            continue
-
-                        logger.info(f"{self.target_year}년 컬럼 위치: {target_column_idx + 1} (행: {year_row_texts})")
-
-                        # ROE 행 탐색 후 목표 연도 컬럼 값 추출
-                        for row_idx, row in enumerate(rows[1:], 1):
-                            cells = row.find_all(['td', 'th'])
-
-                            if len(cells) >= 2:
-                                first_cell_text = cells[0].get_text(strip=True)
-
-                                if 'ROE' in first_cell_text:
-                                    logger.info(f"ROE 행 발견! (행 {row_idx + 1})")
-
-                                    if len(cells) > target_column_idx:
-                                        cell_text = cells[target_column_idx].get_text(strip=True)
-                                        logger.info(f"목표 연도 셀 내용: {cell_text}")
-
-                                        roe_match = re.search(r'([\d.-]+)', cell_text)
-                                        if roe_match:
-                                            roe_value = float(roe_match.group(1))
-                                            logger.info(f"{self.target_period} ROE 값 발견: {roe_value}%")
-                                            return roe_value
-                                        else:
-                                            logger.warning(f"{self.target_period} ROE 값이 숫자가 아닙니다: {cell_text}")
-                                            return 0.0
-                                    else:
-                                        logger.warning(f"목표 연도 컬럼 위치({target_column_idx})가 ROE 행 범위를 벗어났습니다.")
-                                        return 0.0
-            
-            logger.warning(f"종목코드 {stock_code}의 {self.target_period} ROE 값을 찾지 못했습니다.")
-            return 0.0
-            
-        except Exception as e:
-            logger.error(f"종목코드 {stock_code} ROE 검색 실패: {e}")
-            return None
-    
     def analyze_single_stock(self, stock_data):
         """단일 종목 분석 (병렬 처리용)"""
         stock_code = stock_data['종목코드']
