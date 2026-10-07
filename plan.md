@@ -46,3 +46,11 @@ FnGuide 구버전 페이지(`comp.fnguide.com/SVO2/ASP/SVD_Main.asp`)가 폐지�
 - [x] API 응답이 JSON이 아니면(ETF 등) ROE를 0.0으로 처리한다
 - [x] 목표 연도 ROE 값이 null이면 0.0을 반환한다
 - [x] 목표 연도 컬럼이 없으면 0.0을 반환한다
+
+### 3단계 재무 데이터 수집 / 종목명 수정 (stock_fundamentals_fetcher.py, fix_broken_names.py)
+
+- [x] Snapshot HTML + 재무 API가 응답하면 자본총계·총주식수·예상ROE를 반환한다 (API 레벨, 결함 재현)
+- [x] 자사주 행 라벨이 '자사주(자사주+자사주신탁)'여도 자기주식 수를 반환한다
+- [x] 비12월 결산 종목은 최신 실적 연도의 자본총계(지배)를 반환한다
+- [x] 마지막 추정 연도 순이익이 null이면 예상ROE 0.0을 반환한다
+- [x] Snapshot 페이지의 #giName 에서 종목명을 반환한다
