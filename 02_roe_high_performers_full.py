@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-ROE 10% 이상 고성과 종목 찾기 - 완전 버전
+ROE 기준(기본 10%) 이상 고성과 종목 찾기 - 완전 버전
+
+사용 예:
+  python 02_roe_high_performers_full.py                     # ROE 10% 이상
+  python 02_roe_high_performers_full.py --roe-threshold 8   # ROE 8% 이상
 """
 
+import argparse
 import pandas as pd
 import logging
 from stock_roe_analyzer_final import StockROEAnalyzerFinal
@@ -114,13 +119,23 @@ class ROEHighPerformersFull:
         else:
             logger.warning("저장할 고성과 종목이 없습니다.")
 
-def main():
+def parse_args(argv=None):
+    """명령줄 인자 파싱"""
+    parser = argparse.ArgumentParser(description='ROE 기준 이상 고성과 종목 검색')
+    parser.add_argument(
+        '--roe-threshold', type=float, default=10.0,
+        help='ROE 하한(%%). 이 값 이상인 종목만 저장 (기본값: 10.0)',
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
     """메인 함수"""
+    # ROE 임계값 설정 (명령줄 옵션, 기본 10%)
+    roe_threshold = parse_args(argv).roe_threshold
+
     print("🚀 ROE 고성과 종목 검색 프로그램 (완전 버전)")
     print("=" * 60)
-    
-    # ROE 임계값 설정 (10% 이상)
-    roe_threshold = 10.0
     
     try:
         # 고성과 종목 찾기

@@ -83,3 +83,15 @@ FnGuide 구버전 페이지(`comp.fnguide.com/SVO2/ASP/SVD_Main.asp`)가 폐지�
 - [x] 종목명 일부로 검색하면 자동완성 API 결과에서 종목코드를 반환한다 (API 레벨, 결함 재현)
 - [x] 자동완성 결과가 여러 개면 종목명이 정확히 일치하는 항목을 우선한다
 - [x] 일치하는 종목이 없으면 None을 반환한다
+
+---
+
+# ROE 기준 명령줄 옵션 plan
+
+## 목표
+`02_roe_high_performers_full.py`의 하드코딩된 ROE 기준(10.0)을 `--roe-threshold` 옵션으로 변경할 수 있게 한다.
+
+## 테스트 목록
+
+- [x] --roe-threshold 옵션을 주면 해당 값을 ROE 기준으로 사용한다
+- [x] 옵션을 생략하면 기본값 10.0을 사용한다

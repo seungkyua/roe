@@ -56,8 +56,9 @@ analyzer.save_results(results, "roe_results.csv")
 # 전체 stock list 생성
 python 01_stock_list_manual.py
 
-# roe 계산 (10% 이상만)
+# roe 계산 (기본 10% 이상만, --roe-threshold 로 기준 변경)
 python 02_roe_high_performers_full.py
+python 02_roe_high_performers_full.py --roe-threshold 8   # 8% 이상
 ```
 
 ## 매개변수 설명
@@ -239,6 +240,7 @@ python stock_lookup.py 한국금융      # 부분 이름 검색
 python 01_stock_list_manual.py
 
 # 2단계: roe 계산 (10% 이상만) (output: roe_10.0plus_2026_full_results.csv)
+#   기준 변경: --roe-threshold 8 → output: roe_8.0plus_2026_full_results.csv (3·4단계 --roe-csv 도 함께 변경)
 python 02_roe_high_performers_full.py
 
 # 3단계: 재무 데이터 수집 (ROE CSV → fundamentals CSV) (output: fundamentals_2026.csv)
@@ -262,21 +264,21 @@ python stock_recommender.py \
 ```bash
 # 예상적정주가 대비 현재가 상승여력 순 (현재가 자동 수집)
 python stock_recommender.py \
-  --srim-csv srim_results_10.41.csv \
+  --srim-csv srim_results_10.78.csv \
   --output stock_recommendations.csv \
   --top 100 \
   --sort expected
 
 # 적정주가 대비 현재가 상승여력 순 (현재가 자동 수집)
 python stock_recommender.py \
-  --srim-csv srim_results_10.41.csv \
+  --srim-csv srim_results_10.78.csv \
   --output stock_recommendations.csv \
   --top 100 \
   --sort proper
 
 # 예상적정주가가 현재 적정주가 대비 얼마나 높은지 순 (현재가 불필요, 빠름)
 python stock_recommender.py \
-  --srim-csv srim_results_10.41.csv \
+  --srim-csv srim_results_10.78.csv \
   --output stock_recommendations.csv \
   --top 100 \
   --sort growth

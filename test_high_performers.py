@@ -118,3 +118,40 @@ def test_compute_roe_distribution_returns_correct_bucket_counts():
     assert dist["20-30%"] == 1
     assert dist["30-50%"] == 1
     assert dist["50%+"]   == 1
+
+
+# ── --roe-threshold 명령줄 옵션 ──────────────────────────────────────────────
+
+high_performers = importlib.import_module('02_roe_high_performers_full')
+
+
+def run_main_with_args(monkeypatch, argv):
+    """main(argv) 실행 시 ROEHighPerformersFull 에 전달된 roe_threshold 를 반환 (실제 분석은 모킹)"""
+    captured = {}
+
+    class FakeFinder:
+        target_period = "2026/12(E)"
+
+        def __init__(self, roe_threshold=10.0, analyzer=None):
+            captured["roe_threshold"] = roe_threshold
+
+        def find_high_roe_stocks(self):
+            return pd.DataFrame()
+
+        def print_results(self, df):
+            pass
+
+        def save_high_roe_results(self, df, filename=None):
+            pass
+
+    monkeypatch.setattr(high_performers, "ROEHighPerformersFull", FakeFinder)
+    high_performers.main(argv)
+    return captured["roe_threshold"]
+
+
+def test_shouldUseGivenThresholdWhenRoeThresholdOptionIsPassed(monkeypatch):
+    assert run_main_with_args(monkeypatch, ["--roe-threshold", "8"]) == 8.0
+
+
+def test_shouldUseDefaultTenPercentWhenRoeThresholdOptionIsOmitted(monkeypatch):
+    assert run_main_with_args(monkeypatch, []) == 10.0
