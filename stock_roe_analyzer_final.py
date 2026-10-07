@@ -10,6 +10,7 @@ import time
 import re
 import logging
 import json
+import importlib
 import warnings
 import urllib3
 from datetime import datetime
@@ -52,10 +53,11 @@ class StockROEAnalyzerFinal:
     def get_stock_list(self):
         """종목 리스트 가져오기"""
         try:
-            from stock_list_manual import get_stock_list
-            return get_stock_list()
+            # 파일명이 숫자로 시작하므로 import 문 대신 importlib 로 불러온다
+            stock_list_manual = importlib.import_module("01_stock_list_manual")
+            return stock_list_manual.get_stock_list()
         except ImportError:
-            logger.error("stock_list_manual.py를 찾을 수 없습니다.")
+            logger.error("01_stock_list_manual.py를 찾을 수 없습니다.")
             return pd.DataFrame()
     
     def get_fnguide_page(self, stock_code):

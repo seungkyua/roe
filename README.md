@@ -54,10 +54,10 @@ analyzer.save_results(results, "roe_results.csv")
 
 ```bash
 # 전체 stock list 생성
-python stock_list_manual.py
+python 01_stock_list_manual.py
 
 # roe 계산 (10% 이상만)
-python roe_high_performers_full.py
+python 02_roe_high_performers_full.py
 ```
 
 ## 매개변수 설명
@@ -236,10 +236,10 @@ python stock_lookup.py 한국금융      # 부분 이름 검색
 
 ```bash
 # 1단계: 종목 코드 생성 (output: stock_list_krx.csv)
-python stock_list_manual.py
+python 01_stock_list_manual.py
 
 # 2단계: roe 계산 (10% 이상만) (output: roe_10.0plus_2026_full_results.csv)
-python roe_high_performers_full.py
+python 02_roe_high_performers_full.py
 
 # 3단계: 재무 데이터 수집 (ROE CSV → fundamentals CSV) (output: fundamentals_2026.csv)
 python stock_fundamentals_fetcher.py \

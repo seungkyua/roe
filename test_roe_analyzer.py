@@ -1,5 +1,7 @@
+import importlib
 import pytest
-from unittest.mock import MagicMock
+import pandas as pd
+from unittest.mock import MagicMock, patch
 from bs4 import BeautifulSoup
 from stock_roe_analyzer_final import StockROEAnalyzerFinal
 
@@ -91,3 +93,13 @@ def test_find_roe_dynamic_year_returns_zero_when_target_year_absent():
     )
     result = analyzer.find_roe_dynamic_year(soup, "005930")
     assert result == 0.0
+
+
+def test_shouldLoadStockListWhenStockListModuleIsRenamedWithNumberPrefix():
+    # 종목 리스트 모듈 파일명이 01_stock_list_manual.py 여도 정상적으로 불러와야 한다
+    analyzer = make_analyzer()
+    expected = pd.DataFrame([{"종목코드": "005930", "종목명": "삼성전자", "시장": "KOSPI"}])
+    stock_list_manual = importlib.import_module("01_stock_list_manual")
+    with patch.object(stock_list_manual, "get_stock_list", return_value=expected):
+        result = analyzer.get_stock_list()
+    assert result is expected

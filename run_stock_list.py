@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 전체 주식 리스트를 가져오는 실행 파일
-stock_list_manual.py의 StockListManager를 사용하여 인터넷에서 종목 리스트를 가져옵니다.
+01_stock_list_manual.py의 StockListManager를 사용하여 인터넷에서 종목 리스트를 가져옵니다.
 """
 
 import sys
@@ -9,8 +9,11 @@ import os
 import pandas as pd
 from datetime import datetime
 
-# stock_list_manual.py에서 StockListManager 클래스 가져오기
-from stock_list_manual import StockListManager
+import importlib
+
+# 01_stock_list_manual.py에서 StockListManager 클래스 가져오기
+# (파일명이 숫자로 시작하므로 import 문 대신 importlib 로 불러온다)
+StockListManager = importlib.import_module("01_stock_list_manual").StockListManager
 
 def main():
     """메인 실행 함수"""
@@ -90,7 +93,7 @@ def main():
             return False
             
     except ImportError as e:
-        print(f"❌ 오류: stock_list_manual.py 파일을 찾을 수 없습니다.")
+        print(f"❌ 오류: 01_stock_list_manual.py 파일을 찾을 수 없습니다.")
         print(f"   - 오류 내용: {e}")
         return False
         

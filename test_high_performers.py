@@ -1,7 +1,10 @@
 import pytest
 import pandas as pd
+import importlib
 from unittest.mock import MagicMock
-from roe_high_performers_full import ROEHighPerformersFull
+
+# 파일명이 숫자로 시작하므로 import 문 대신 importlib 로 불러온다
+ROEHighPerformersFull = importlib.import_module('02_roe_high_performers_full').ROEHighPerformersFull
 
 
 def make_mock_analyzer(roe_data: dict, target_period="2025/12(E)", target_year=2025):

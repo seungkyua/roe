@@ -1,5 +1,9 @@
+import importlib
 from unittest.mock import MagicMock, patch
-from stock_list_manual import StockListManager
+
+# 파일명이 숫자로 시작하므로 import 문 대신 importlib 로 불러온다
+stock_list_manual = importlib.import_module('01_stock_list_manual')
+StockListManager = stock_list_manual.StockListManager
 
 
 def make_response(total_count, items):
@@ -14,7 +18,7 @@ def item(code, name):
     return {'itemCode': code, 'stockName': name}
 
 
-@patch('stock_list_manual.time.sleep')
+@patch.object(stock_list_manual.time, 'sleep')
 def test_shouldReturnKospiAndKosdaqStocksWhenNaverApiResponds(_sleep):
     # API 레벨: 시장별 API 응답을 합쳐 종목코드/종목명/시장 DataFrame을 만든다
     manager = StockListManager()
@@ -32,7 +36,7 @@ def test_shouldReturnKospiAndKosdaqStocksWhenNaverApiResponds(_sleep):
     ]
 
 
-@patch('stock_list_manual.time.sleep')
+@patch.object(stock_list_manual.time, 'sleep')
 def test_shouldFetchAllPagesWhenTotalCountExceedsPageSize(_sleep):
     manager = StockListManager()
     pages = {
@@ -46,7 +50,7 @@ def test_shouldFetchAllPagesWhenTotalCountExceedsPageSize(_sleep):
     assert [s['종목코드'] for s in stocks] == ['005930', '000660', '373220']
 
 
-@patch('stock_list_manual.time.sleep')
+@patch.object(stock_list_manual.time, 'sleep')
 def test_shouldSkipInvalidAndDuplicateCodesWhenApiReturnsThem(_sleep):
     manager = StockListManager()
     manager.session.get = MagicMock(return_value=make_response(4, [
@@ -61,7 +65,7 @@ def test_shouldSkipInvalidAndDuplicateCodesWhenApiReturnsThem(_sleep):
     assert stocks == [{'종목코드': '005930', '종목명': '삼성전자', '시장': 'KOSDAQ'}]
 
 
-@patch('stock_list_manual.time.sleep')
+@patch.object(stock_list_manual.time, 'sleep')
 def test_shouldStopPagingWhenPageIsEmpty(_sleep):
     manager = StockListManager()
     manager.session.get = MagicMock(return_value=make_response(500, []))
