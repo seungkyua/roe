@@ -18,12 +18,9 @@ import argparse
 import logging
 import re
 import sys
-import time
 import unicodedata
 import requests
 from requests.adapters import HTTPAdapter
-from bs4 import BeautifulSoup
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from stock_roe_analyzer_final import StockROEAnalyzerFinal
 from stock_fundamentals_fetcher import StockFundamentalsFetcher
@@ -33,8 +30,6 @@ from s_rim_pipeline import fetch_discount_rate
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-NAVER_SISE_KOSPI  = "https://finance.naver.com/sise/sise_market_sum.nhn"
-NAVER_SISE_KOSDAQ = "https://finance.naver.com/sise/sise_market_sum.nhn?sosok=1"
 POLLING_API_URL   = "https://polling.finance.naver.com/api/realtime/domestic/stock/{code}"
 # 네이버 증권 종목 자동완성 API (종목명 → 종목코드)
 NAVER_AUTOCOMPLETE_URL = "https://ac.stock.naver.com/ac"
@@ -77,49 +72,6 @@ def _call_polling_api(stock_code: str) -> dict | None:
     except Exception as e:
         logger.warning(f"{stock_code} 현재가 API 호출 실패: {e}")
         return None
-
-
-def _fetch_sise_page(url: str, session: requests.Session) -> list[dict]:
-    """Naver Finance SISE 1개 페이지에서 종목 목록 반환"""
-    try:
-        resp = session.get(url, timeout=15)
-        resp.raise_for_status()
-        resp.encoding = 'euc-kr'
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        table = soup.find('table', {'class': 'type_2'})
-        if not table:
-            return []
-        stocks = []
-        for row in table.find_all('tr'):
-            link = row.find('a', href=re.compile(r'code=\d{6}'))
-            if link:
-                m = re.search(r'code=(\d{6})', link['href'])
-                if m:
-                    market = 'KOSDAQ' if 'sosok=1' in url else 'KOSPI'
-                    stocks.append({
-                        '종목코드': m.group(1),
-                        '종목명': link.get_text(strip=True),
-                        '시장': market,
-                    })
-        return stocks
-    except Exception as e:
-        logger.debug(f"SISE 페이지 오류 ({url}): {e}")
-        return []
-
-
-def _get_total_sise_pages(soup: BeautifulSoup) -> int:
-    """페이지 네비게이션에서 전체 페이지 수 추출"""
-    try:
-        for link in soup.find_all('a', href=re.compile(r'page=\d+')):
-            if link.get_text(strip=True) == '맨뒤':
-                m = re.search(r'page=(\d+)', link['href'])
-                if m:
-                    return int(m.group(1))
-        nums = [int(m.group(1)) for a in soup.find_all('a', href=re.compile(r'page=\d+'))
-                if (m := re.search(r'page=(\d+)', a['href']))]
-        return max(nums) if nums else 30
-    except Exception:
-        return 30
 
 
 # ── 공개 API ──────────────────────────────────────────────────────────────────
