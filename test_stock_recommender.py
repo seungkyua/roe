@@ -1,21 +1,10 @@
 import pytest
 import pandas as pd
-from bs4 import BeautifulSoup
 from unittest.mock import MagicMock
 from stock_recommender import fetch_current_price, StockRecommender, sort_results, SORT_MODES
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────────
-
-def make_naver_price_soup(price: int) -> BeautifulSoup:
-    """Naver Finance 현재가 페이지 구조 모킹"""
-    html = f"""<html><body>
-    <p class="no_today">
-      <span class="blind">{price:,}</span>
-    </p>
-    </body></html>"""
-    return BeautifulSoup(html, 'html.parser')
-
 
 def make_srim_df(rows):
     return pd.DataFrame(rows)
@@ -23,23 +12,34 @@ def make_srim_df(rows):
 
 # ── 테스트 1: 현재가 파싱 ────────────────────────────────────────────────────
 
-def test_fetch_current_price_parses_price_from_naver_page(monkeypatch):
-    """Naver Finance 페이지에서 현재가를 정수로 반환한다"""
-    mock_soup = make_naver_price_soup(268_500)
-    monkeypatch.setattr('stock_recommender._get_naver_price_page', lambda code, session: mock_soup)
+def make_price_api_session(code: str, close_price: str = None, status_error: bool = False):
+    """네이버 증권 종목 기본정보 API 응답 모킹 (해당 URL 이 아니면 구버전 빈 페이지 반환)"""
+    session = MagicMock()
 
-    price = fetch_current_price('005930')
+    def fake_get(url, timeout=None):
+        resp = MagicMock(text="<html></html>")
+        if url == f"https://m.stock.naver.com/api/stock/{code}/basic":
+            if status_error:
+                resp.raise_for_status.side_effect = Exception("409 Client Error")
+            resp.json.return_value = {"itemCode": code, "closePrice": close_price}
+        return resp
 
-    assert price == 268_500
+    session.get.side_effect = fake_get
+    return session
 
 
-def test_fetch_current_price_returns_zero_on_failure(monkeypatch):
-    """페이지 조회 실패 시 0을 반환한다"""
-    monkeypatch.setattr('stock_recommender._get_naver_price_page', lambda code, session: None)
+def test_shouldReturnPriceWhenNaverStockApiResponds():
+    # API 레벨: 네이버 증권 API 의 closePrice('14,980')를 정수로 반환한다
+    session = make_price_api_session("097230", close_price="14,980")
 
-    price = fetch_current_price('000000')
+    assert fetch_current_price("097230", session) == 14_980
 
-    assert price == 0
+
+def test_shouldReturnZeroWhenNaverStockApiReturnsError():
+    # 존재하지 않는 종목코드는 409 오류가 오므로 0 을 반환한다
+    session = make_price_api_session("000000", status_error=True)
+
+    assert fetch_current_price("000000", session) == 0
 
 
 # ── 테스트 2: upside 계산 ────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 주식 추천 프로그램: 예상적정주가(S-RIM) 대비 현재가 상승여력 기준 종목 추천
-현재가: Naver Finance (https://finance.naver.com/item/main.naver?code={종목코드})
+현재가: 네이버 증권 API (https://m.stock.naver.com/api/stock/{종목코드}/basic)
 입력:  srim_results_*.csv
 출력:  stock_recommendations.csv
 """
@@ -11,13 +11,14 @@ import logging
 import time
 import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-NAVER_PRICE_URL = "https://finance.naver.com/item/main.naver?code={code}"
+# 구버전 finance.naver.com/item/main.naver 페이지는 stock.naver.com(SPA)으로 리다이렉트되어
+# 현재가 요소(.no_today)가 없으므로, 새 사이트가 사용하는 종목 기본정보 JSON API 사용
+NAVER_PRICE_URL = "https://m.stock.naver.com/api/stock/{code}/basic"
 
 OUTPUT_COLUMNS = [
     '종목코드', '종목명', '시장',
@@ -63,21 +64,19 @@ def sort_results(df: pd.DataFrame, mode: str) -> pd.DataFrame:
     return df.sort_values('정렬기준(%)', ascending=False).reset_index(drop=True)
 
 
-def _get_naver_price_page(stock_code: str, session: requests.Session):
-    """Naver Finance 종목 페이지 가져오기"""
+def _get_naver_price_data(stock_code: str, session: requests.Session):
+    """네이버 증권 종목 기본정보(JSON) 가져오기. 실패 시 None"""
     try:
-        url = NAVER_PRICE_URL.format(code=stock_code)
-        resp = session.get(url, timeout=10)
+        resp = session.get(NAVER_PRICE_URL.format(code=stock_code), timeout=10)
         resp.raise_for_status()
-        resp.encoding = 'euc-kr'
-        return BeautifulSoup(resp.text, 'html.parser')
+        return resp.json()
     except Exception as e:
-        logger.warning(f"{stock_code} 현재가 페이지 로드 실패: {e}")
+        logger.warning(f"{stock_code} 현재가 조회 실패: {e}")
         return None
 
 
 def fetch_current_price(stock_code: str, session: requests.Session = None) -> int:
-    """Naver Finance에서 종목 현재가 반환 (실패 시 0)"""
+    """네이버 증권에서 종목 현재가 반환 (실패 시 0)"""
     if session is None:
         session = requests.Session()
         session.headers.update({
@@ -86,15 +85,14 @@ def fetch_current_price(stock_code: str, session: requests.Session = None) -> in
             'Accept-Language': 'ko-KR,ko;q=0.9',
         })
 
-    soup = _get_naver_price_page(stock_code, session)
-    if soup is None:
+    data = _get_naver_price_data(stock_code, session)
+    if data is None:
         return 0
 
-    el = soup.select_one('.no_today .blind')
-    if el:
-        val = el.get_text(strip=True).replace(',', '')
-        if val.isdigit():
-            return int(val)
+    # closePrice 예: '14,980'
+    val = str(data.get('closePrice') or '').replace(',', '')
+    if val.isdigit():
+        return int(val)
 
     logger.warning(f"{stock_code}: 현재가 파싱 실패")
     return 0

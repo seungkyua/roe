@@ -54,3 +54,17 @@ FnGuide 구버전 페이지(`comp.fnguide.com/SVO2/ASP/SVD_Main.asp`)가 폐지�
 - [x] 비12월 결산 종목은 최신 실적 연도의 자본총계(지배)를 반환한다
 - [x] 마지막 추정 연도 순이익이 null이면 예상ROE 0.0을 반환한다
 - [x] Snapshot 페이지의 #giName 에서 종목명을 반환한다
+
+---
+
+# 현재가 수집 소스 교체 plan
+
+## 목표
+네이버 금융 종목 페이지(`finance.naver.com/item/main.naver`)가 `stock.naver.com`(SPA)으로 리다이렉트되어
+`.no_today` 현재가 파싱이 실패하므로, `stock_recommender.py`가
+`m.stock.naver.com/api/stock/{code}/basic` JSON API의 `closePrice`를 사용하도록 교체한다.
+
+## 테스트 목록
+
+- [x] 네이버 증권 API가 응답하면 closePrice를 정수 현재가로 반환한다 (API 레벨, 결함 재현)
+- [x] API가 오류(409 등)를 반환하면 현재가 0을 반환한다
