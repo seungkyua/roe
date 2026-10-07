@@ -5,7 +5,6 @@
 
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 import logging
 import os
 import time
@@ -139,51 +138,6 @@ class StockListManager:
             time.sleep(0.2)
         
         return stocks
-    
-    def get_total_pages(self, soup):
-        """페이지에서 전체 페이지 수 추출"""
-        try:
-            # 페이지 네비게이션에서 마지막 페이지 번호 찾기
-            navi_table = soup.find('table', {'class': 'Nnavi'})
-            if navi_table:
-                links = navi_table.find_all('a')
-                if links:
-                    # "맨뒤" 링크에서 페이지 번호 추출
-                    for link in links:
-                        text = link.get_text(strip=True)
-                        href = link.get('href', '')
-                        if text == '맨뒤':
-                            match = re.search(r'page=(\d+)', href)
-                            if match:
-                                return int(match.group(1))
-                    
-                    # 마지막 링크의 텍스트가 페이지 번호인지 확인
-                    last_link = links[-1]
-                    page_text = last_link.get_text(strip=True)
-                    if page_text.isdigit():
-                        return int(page_text)
-            
-            # 대안: 페이지 번호가 있는 모든 링크 찾기
-            all_links = soup.find_all('a', href=re.compile(r'page=\d+'))
-            if all_links:
-                page_numbers = []
-                for link in all_links:
-                    href = link.get('href', '')
-                    match = re.search(r'page=(\d+)', href)
-                    if match:
-                        page_numbers.append(int(match.group(1)))
-                
-                if page_numbers:
-                    return max(page_numbers)  # 최대 페이지 번호
-            
-            # 기본값: 50페이지 (대략적인 추정)
-            return 50
-            
-        except Exception as e:
-            logger.warning(f"전체 페이지 수 추출 실패: {e}")
-            return 50  # 기본값
-    
-
     
     def save_stock_list(self, stock_list):
         """종목 리스트를 CSV 파일에 저장"""
