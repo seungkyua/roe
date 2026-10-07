@@ -14,13 +14,10 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import fnguide
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-FNGUIDE_URL = (
-    "https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp"
-    "?pGB=1&gicode=A{code}&cID=&MenuYn=Y&ReportGB=&NewMenuID=11&stkGb=701"
-)
 
 # 한글/영문/숫자/일반 기호 외 문자가 포함된 이름을 "깨진 이름"으로 판별
 _BROKEN_PATTERN = re.compile(r'[^가-힣ᄀ-ᇿ㄰-㆏\w\s\(\)\.\-&\+\'\"\/]')
@@ -31,10 +28,9 @@ def is_broken(name: str) -> bool:
 
 
 def fetch_name_from_fnguide(stock_code: str, session: requests.Session) -> str:
-    """FnGuide #giName 요소에서 종목명 가져오기"""
+    """FnGuide Snapshot 페이지의 #giName 요소에서 종목명 가져오기"""
     try:
-        url = FNGUIDE_URL.format(code=stock_code)
-        resp = session.get(url, timeout=15)
+        resp = session.get(fnguide.SNAPSHOT_URL, params={'cmp_cd': stock_code}, timeout=15)
         resp.encoding = 'utf-8'
         soup = BeautifulSoup(resp.text, 'html.parser')
         el = soup.select_one('#giName')
