@@ -246,14 +246,14 @@ python stock_fundamentals_fetcher.py \
   --roe-csv roe_10.0plus_2026_full_results.csv \
   --output fundamentals_2026.csv
 
-# 4단계: S-RIM 적정 주가 계산 (output: srim_results_10.41.csv)
+# 4단계: S-RIM 적정 주가 계산 (output: srim_results_10.78.csv)
 python s_rim_pipeline.py \
   --roe-csv roe_10.0plus_2026_full_results.csv \
   --fundamentals-csv fundamentals_2026.csv
 
 # 5단계: 종목 추천 (output: stock_recommendations.csv)
 python stock_recommender.py \
-  --srim-csv srim_results_10.41.csv \
+  --srim-csv srim_results_10.78.csv \
   --output stock_recommendations.csv \
   --top 100 \
   --sort proper
