@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-완전 자동화된 인터넷 스크래핑으로 종목 리스트 관리
+네이버 증권 API로 종목 리스트 관리
 """
 
 import pandas as pd
@@ -27,6 +27,8 @@ class StockListManager:
             'Connection': 'keep-alive',
         })
         self.stock_file = 'stock_list_krx.csv'
+
+    MARKET_VALUE_API = 'https://m.stock.naver.com/api/stocks/marketValue/{market}'
     
     def get_stock_list_from_internet(self):
         """인터넷에서 종목 리스트 가져오기"""
@@ -58,130 +60,83 @@ class StockListManager:
             return pd.DataFrame()
     
     def scrape_stocks_from_naver_finance(self):
-        """네이버 금융에서 종목 리스트 스크래핑"""
+        """네이버 증권 API에서 종목 리스트 가져오기"""
         try:
-            logger.info("네이버 금융에서 종목 리스트 스크래핑 중...")
+            logger.info("네이버 증권에서 종목 리스트 가져오는 중...")
             
             stocks = []
             
-            # KOSPI 전체 페이지 스크래핑
-            logger.info("KOSPI 종목 스크래핑 시작...")
-            kospi_stocks = self.scrape_market_stocks("https://finance.naver.com/sise/sise_market_sum.nhn", "KOSPI")
-            stocks.extend(kospi_stocks)
+            # 기존 finance.naver.com/sise/sise_market_sum 페이지는 stock.naver.com(SPA)으로
+            # 리다이렉트되어 HTML 테이블이 없으므로, 새 사이트가 사용하는 JSON API를 사용
+            logger.info("KOSPI 종목 가져오기 시작...")
+            stocks.extend(self.scrape_market_stocks("KOSPI"))
             
-            # KOSDAQ 전체 페이지 스크래핑
-            logger.info("KOSDAQ 종목 스크래핑 시작...")
-            kosdaq_stocks = self.scrape_market_stocks("https://finance.naver.com/sise/sise_market_sum.nhn?sosok=1", "KOSDAQ")
-            stocks.extend(kosdaq_stocks)
+            logger.info("KOSDAQ 종목 가져오기 시작...")
+            stocks.extend(self.scrape_market_stocks("KOSDAQ"))
             
             if stocks:
                 # 중복 제거
                 df = pd.DataFrame(stocks)
                 df = df.drop_duplicates(subset=['종목코드'], keep='first')
-                logger.info(f"네이버 금융에서 총 {len(df)}개 종목 발견")
+                logger.info(f"네이버 증권에서 총 {len(df)}개 종목 발견")
                 return df
             else:
-                logger.warning("네이버 금융에서 종목을 찾을 수 없습니다.")
+                logger.warning("네이버 증권에서 종목을 찾을 수 없습니다.")
                 return pd.DataFrame()
                 
         except Exception as e:
-            logger.error(f"네이버 금융 스크래핑 실패: {e}")
+            logger.error(f"네이버 증권 종목 리스트 가져오기 실패: {e}")
             return pd.DataFrame()
     
-    def scrape_market_stocks(self, base_url, market_name):
-        """특정 시장의 모든 종목 스크래핑"""
+    def scrape_market_stocks(self, market_name, page_size=100):
+        """특정 시장(KOSPI/KOSDAQ)의 모든 종목을 시가총액 순으로 가져오기"""
         stocks = []
+        seen_codes = set()
         page = 1
-        total_pages = 1  # 초기값
+        total_pages = 1  # 첫 응답의 totalCount로 갱신
         
         while page <= total_pages:
             try:
-                if page == 1:
-                    url = base_url
-                else:
-                    # KOSPI의 경우 첫 번째 페이지는 page 파라미터가 없고, 두 번째부터는 page 파라미터가 있음
-                    if "sosok=1" not in base_url:  # KOSPI
-                        url = f"{base_url}?page={page}"
-                    else:  # KOSDAQ
-                        url = f"{base_url}&page={page}"
-                
-                logger.info(f"{market_name} 페이지 {page} 스크래핑 중...")
-                response = self.session.get(url, timeout=30)
+                logger.info(f"{market_name} 페이지 {page} 가져오는 중...")
+                response = self.session.get(
+                    self.MARKET_VALUE_API.format(market=market_name),
+                    params={'page': page, 'pageSize': page_size},
+                    timeout=30,
+                )
                 response.raise_for_status()
-                response.encoding = 'euc-kr'
-                # response.text 를 사용해야 response.encoding 설정이 적용됨
-                # response.content(bytes)를 직접 전달하면 BeautifulSoup이 cp949 자동 감지 시 일부 문자 깨짐
-                soup = BeautifulSoup(response.text, 'html.parser')
+                data = response.json()
                 
-                # 첫 번째 페이지에서 전체 페이지 수 확인
                 if page == 1:
-                    total_pages = self.get_total_pages(soup)
-                    logger.info(f"{market_name} 총 {total_pages}페이지 발견")
+                    total_count = int(data.get('totalCount', 0))
+                    total_pages = max(1, -(-total_count // page_size))
+                    logger.info(f"{market_name} 총 {total_count}개 종목, {total_pages}페이지")
                 
-                # 종목 테이블 찾기
-                table = soup.find('table', {'class': 'type_2'})
-                if not table:
-                    tables = soup.find_all('table')
-                    for t in tables:
-                        if t.find('tr', {'class': 'type1'}) or t.find('tr', {'class': 'type2'}):
-                            table = t
-                            break
+                items = data.get('stocks') or []
+                if not items:
+                    logger.warning(f"{market_name} 페이지 {page}에서 종목을 찾을 수 없습니다.")
+                    break
                 
-                if table:
-                    page_stocks = []
-                    rows = table.find_all('tr')
-                    for row in rows:
-                        # 헤더 행 건너뛰기
-                        if row.get('class') and ('type1' in row.get('class') or 'type2' in row.get('class')):
-                            continue
-                        
-                        cells = row.find_all(['td', 'th'])
-                        if len(cells) >= 2:
-                            try:
-                                stock_code = ""
-                                stock_name = ""
-                                
-                                # 두 번째 셀 (종목명)에서 링크 찾기
-                                if len(cells) > 1:
-                                    second_cell = cells[1]
-                                    link = second_cell.find('a')
-                                    if link:
-                                        href = link.get('href', '')
-                                        stock_name = link.get_text(strip=True)
-                                        
-                                        # href에서 종목코드 추출
-                                        if 'code=' in href:
-                                            code_match = re.search(r'code=(\d{6})', href)
-                                            if code_match:
-                                                stock_code = code_match.group(1)
-                                
-                                # 종목코드가 6자리 숫자인지 확인하고 종목명이 있는지 확인
-                                if re.match(r'^\d{6}$', stock_code) and stock_name and len(stock_name) > 0:
-                                    # 중복 체크 (현재 페이지와 이전 페이지 모두 확인)
-                                    existing_codes = [s['종목코드'] for s in stocks] + [s['종목코드'] for s in page_stocks]
-                                    if stock_code not in existing_codes:
-                                        page_stocks.append({
-                                            '종목코드': stock_code,
-                                            '종목명': stock_name,
-                                            '시장': market_name
-                                        })
-                            except Exception as e:
-                                logger.debug(f"행 처리 중 오류: {e}")
-                                continue
-                    
-                    stocks.extend(page_stocks)
-                    logger.info(f"{market_name} 페이지 {page}에서 {len(page_stocks)}개 종목 발견 (누적: {len(stocks)}개)")
-                else:
-                    logger.warning(f"{market_name} 페이지 {page}에서 종목 테이블을 찾을 수 없습니다.")
+                page_count = 0
+                for item in items:
+                    stock_code = str(item.get('itemCode', ''))
+                    stock_name = (item.get('stockName') or '').strip()
+                    if re.match(r'^\d{6}$', stock_code) and stock_name and stock_code not in seen_codes:
+                        seen_codes.add(stock_code)
+                        stocks.append({
+                            '종목코드': stock_code,
+                            '종목명': stock_name,
+                            '시장': market_name
+                        })
+                        page_count += 1
                 
-                page += 1
-                
-                # 너무 빠른 요청 방지
-                time.sleep(0.5)
+                logger.info(f"{market_name} 페이지 {page}에서 {page_count}개 종목 발견 (누적: {len(stocks)}개)")
                 
             except Exception as e:
-                logger.warning(f"{market_name} 페이지 {page} 스크래핑 실패: {e}")
-                page += 1
+                logger.warning(f"{market_name} 페이지 {page} 가져오기 실패: {e}")
+            
+            page += 1
+            # 너무 빠른 요청 방지
+            time.sleep(0.2)
         
         return stocks
     

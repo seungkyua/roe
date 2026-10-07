@@ -14,3 +14,19 @@
 - [x] 여러 연도 컬럼 중 target_year와 일치하는 컬럼만 선택한다
 - [x] 찾은 컬럼 인덱스로 ROE 값을 올바르게 추출한다
 - [x] target_year가 포함된 컬럼이 없으면 ROE를 0.0으로 반환한다
+
+---
+
+# 종목 리스트 수집 소스 교체 plan
+
+## 목표
+네이버 금융 `sise_market_sum.nhn` 페이지가 `stock.naver.com`(SPA)으로 리다이렉트되어
+HTML 테이블 스크래핑이 실패(종목 0개)하므로, `stock_list_manual.py`가
+`m.stock.naver.com/api/stocks/marketValue/{KOSPI|KOSDAQ}` JSON API를 사용하도록 교체한다.
+
+## 테스트 목록
+
+- [x] 네이버 API가 응답하면 KOSPI/KOSDAQ 종목을 합쳐 반환한다 (API 레벨, 결함 재현)
+- [x] totalCount가 pageSize보다 크면 모든 페이지를 가져온다
+- [x] 6자리 숫자가 아닌 코드, 빈 종목명, 중복 코드는 건너뛴다
+- [x] 빈 페이지를 만나면 페이징을 중단한다
