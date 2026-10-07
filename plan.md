@@ -68,3 +68,18 @@ FnGuide 구버전 페이지(`comp.fnguide.com/SVO2/ASP/SVD_Main.asp`)가 폐지�
 
 - [x] 네이버 증권 API가 응답하면 closePrice를 정수 현재가로 반환한다 (API 레벨, 결함 재현)
 - [x] API가 오류(409 등)를 반환하면 현재가 0을 반환한다
+
+---
+
+# stock_lookup 데이터 소스 교체 plan
+
+## 목표
+`stock_lookup.py`가 폐지된 네이버 SISE 페이지(종목명 검색)와 삭제된 HTML 파싱 메서드(FnGuide)를 사용해 동작하지 않으므로,
+종목명 검색은 네이버 증권 자동완성 API(`ac.stock.naver.com/ac`)로, 재무 데이터는 FnGuide Snapshot + 재무 API로 교체한다.
+
+## 테스트 목록
+
+- [x] lookup()이 Snapshot HTML + 재무 API에서 ROE·자본·주식수·예상ROE·종목명을 추출한다 (API 레벨, 결함 재현)
+- [x] 종목명 일부로 검색하면 자동완성 API 결과에서 종목코드를 반환한다 (API 레벨, 결함 재현)
+- [x] 자동완성 결과가 여러 개면 종목명이 정확히 일치하는 항목을 우선한다
+- [x] 일치하는 종목이 없으면 None을 반환한다

@@ -2,11 +2,11 @@
 """
 종목 코드 또는 종목명으로 S-RIM 적정 주가 실시간 계산 (CSV 파일 없음)
 
-HTTP 요청 흐름 (총 3~4회):
-  1. FnGuide 페이지  → ROE, equity, total_shares, future_roe
+HTTP 요청 흐름 (총 4~5회):
+  1. FnGuide Snapshot + 재무 API → ROE, equity, total_shares, future_roe
   2. KIS Rating     → discount_rate (BBB- 5년)
   3. Naver polling  → 현재가
-  4. Naver SISE     → 종목명 입력 시 코드 변환 (병렬)
+  4. Naver 자동완성  → 종목명 입력 시 코드 변환
 
 사용 예:
   python stock_lookup.py 005930
@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 NAVER_SISE_KOSPI  = "https://finance.naver.com/sise/sise_market_sum.nhn"
 NAVER_SISE_KOSDAQ = "https://finance.naver.com/sise/sise_market_sum.nhn?sosok=1"
 POLLING_API_URL   = "https://polling.finance.naver.com/api/realtime/domestic/stock/{code}"
+# 네이버 증권 종목 자동완성 API (종목명 → 종목코드)
+NAVER_AUTOCOMPLETE_URL = "https://ac.stock.naver.com/ac"
 
 DISPLAY_COLUMNS = [
     '종목코드', '종목명', '시장',
@@ -124,64 +126,31 @@ def _get_total_sise_pages(soup: BeautifulSoup) -> int:
 
 def _search_code_by_name(name: str) -> str | None:
     """
-    Naver Finance SISE 페이지를 병렬로 검색해 종목명과 일치하는 종목코드 반환.
-    없으면 None.
-
-    최적화:
-    - 1페이지 fetch 에서 soup을 재사용해 전체 페이지 수도 한 번에 파악 (이중 요청 제거)
-    - 공유 세션의 커넥션 풀을 병렬 워커 수에 맞게 확대
+    네이버 증권 자동완성 API로 종목명과 일치하는 종목코드 반환. 없으면 None.
+    - 종목명이 정확히 일치하는 항목을 우선하고, 없으면 이름에 검색어가 포함된 첫 항목을 사용
+    - 6자리 숫자 코드가 아닌 항목(신규 영숫자 코드 ETF 등)은 제외
     """
-    WORKERS = 10
-    name_lower = name.strip().lower()
-
-    def _search_market(base_url: str) -> str | None:
-        # 시장별 독립 세션 — 세션 공유 시 pool_maxsize 경쟁 방지
-        sess = _make_session(pool_maxsize=WORKERS + 5)
-
-        # 1페이지 fetch — soup에서 종목 목록 + 전체 페이지 수를 동시에 추출
-        try:
-            resp = sess.get(base_url, timeout=15)
-            resp.raise_for_status()
-            resp.encoding = 'euc-kr'
-            soup = BeautifulSoup(resp.text, 'html.parser')
-        except Exception as e:
-            logger.debug(f"SISE 1페이지 오류 ({base_url}): {e}")
-            return None
-
-        # 1페이지 종목 검색
-        table = soup.find('table', {'class': 'type_2'})
-        if table:
-            for row in table.find_all('tr'):
-                link = row.find('a', href=re.compile(r'code=\d{6}'))
-                if link and name_lower in link.get_text(strip=True).lower():
-                    m = re.search(r'code=(\d{6})', link['href'])
-                    if m:
-                        return m.group(1)
-
-        # 전체 페이지 수 (1페이지 soup 재사용)
-        total = _get_total_sise_pages(soup)
-
-        # 2페이지 이후 병렬 검색
-        sep = '&' if 'sosok=1' in base_url else '?'
-        urls = [f"{base_url}{sep}page={p}" for p in range(2, total + 1)]
-
-        with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-            futures = {ex.submit(_fetch_sise_page, u, sess): u for u in urls}
-            for future in as_completed(futures):
-                for s in (future.result() or []):
-                    if name_lower in s['종목명'].lower():
-                        return s['종목코드']
+    query = name.strip()
+    try:
+        resp = _make_session().get(
+            NAVER_AUTOCOMPLETE_URL, params={'q': query, 'target': 'stock'}, timeout=10
+        )
+        resp.raise_for_status()
+        items = resp.json().get('items') or []
+    except Exception as e:
+        logger.warning(f"'{query}' 종목 검색 실패: {e}")
         return None
 
-    # KOSPI, KOSDAQ 병렬 검색 (각자 독립 세션 사용)
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        kospi_f  = ex.submit(_search_market, NAVER_SISE_KOSPI)
-        kosdaq_f = ex.submit(_search_market, NAVER_SISE_KOSDAQ)
-        for future in as_completed([kospi_f, kosdaq_f]):
-            result = future.result()
-            if result:
-                return result
-    return None
+    query_lower = query.lower()
+    candidates = [
+        item for item in items
+        if re.fullmatch(r'\d{6}', str(item.get('code', '')))
+        and query_lower in str(item.get('name', '')).lower()
+    ]
+    for item in candidates:
+        if item['name'].lower() == query_lower:
+            return item['code']
+    return candidates[0]['code'] if candidates else None
 
 
 def resolve_code(query: str) -> str:
@@ -326,7 +295,7 @@ def lookup(query: str) -> dict:
     code = resolve_code(query)
     logger.info(f"종목코드: {code}")
 
-    # 2. FnGuide 페이지 1회 fetch → ROE + 재무데이터 동시 추출
+    # 2. FnGuide Snapshot HTML + 재무 API(연간 8개 컬럼) 각 1회 fetch
     logger.info("FnGuide 재무 데이터 수집 중...")
     roe_analyzer   = StockROEAnalyzerFinal()
     fund_fetcher   = StockFundamentalsFetcher()
@@ -334,16 +303,19 @@ def lookup(query: str) -> dict:
     soup = fund_fetcher.get_page(code)
     if soup is None:
         raise RuntimeError(f"FnGuide 페이지를 가져올 수 없습니다: {code}")
+    dataset = fund_fetcher.get_financial(code)
+    if not dataset:
+        raise RuntimeError(f"FnGuide 재무 데이터를 가져올 수 없습니다: {code}")
 
-    # ROE (당해연도 예상), equity, total_shares, future_roe — 동일 페이지에서 추출
-    current_roe  = roe_analyzer.find_roe_dynamic_year(soup, code) or 0.0
-    equity       = fund_fetcher.find_equity(soup, code)
+    # ROE(당해연도 예상)·equity·future_roe 는 재무 API, 발행주식수·자사주는 Snapshot HTML 에서 추출
+    current_roe  = roe_analyzer.find_roe_from_financial(dataset, code) or 0.0
+    equity       = fund_fetcher.find_equity_from_financial(dataset, code)
     issued       = fund_fetcher.find_issued_shares(soup)
     treasury     = fund_fetcher.find_treasury_shares(soup)
     total_shares = issued - treasury
-    future_roe   = fund_fetcher.find_future_roe(soup, code)
+    future_roe   = fund_fetcher.find_future_roe_from_financial(dataset, code)
 
-    # 종목명·시장 추출 (FnGuide 타이틀: "삼성전자(A005930) | ...")
+    # 종목명·시장 추출 (Snapshot 타이틀: "삼성전자(005930) | ...")
     name, market = _extract_name_market(soup, code)
 
     # 3. 할인율 (KIS Rating BBB- 5년)
