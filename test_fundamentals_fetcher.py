@@ -11,32 +11,6 @@ def make_fetcher(year=2026):
     return f
 
 
-def make_financial_highlight_soup(year_to_equity: dict):
-    """
-    FnGuide Financial Highlight 테이블 구조 모킹.
-    - rows[0]: IFRS(연결) | Annual | Net Quarter
-    - rows[1]: 연도 헤더 (레이블 셀 없이 연도만, 실제 FnGuide 구조 반영)
-    - rows[2+]: 데이터 행 (셀[0]=항목명, 셀[1+]=값)
-    """
-    years = sorted(year_to_equity.keys())
-    year_header = "".join(f"<th>{y}</th>" for y in years)
-    equity_values = "".join(f"<td>{year_to_equity[y]:,}</td>" for y in years)
-    padding = "".join("<tr><td></td></tr>" for _ in range(20))
-    html = f"""
-    <html><body>
-    <table class="us_table_ty1">
-      <tr><th>IFRS(연결)</th><th>Annual</th><th>Net Quarter</th></tr>
-      <tr>{year_header}</tr>
-      <tr><td>매출액</td>{'<td>100</td>' * len(years)}</tr>
-      <tr><td>자본총계</td>{'<td>500</td>' * len(years)}</tr>
-      <tr><td>지배주주지분</td>{equity_values}</tr>
-      {padding}
-    </table>
-    </body></html>
-    """
-    return BeautifulSoup(html, 'html.parser')
-
-
 def make_market_info_soup(issued_common: int, issued_preferred: int):
     """시세현황 테이블 모킹"""
     html = f"""
@@ -68,66 +42,7 @@ def make_shareholder_soup(treasury: int):
     return BeautifulSoup(html, 'html.parser')
 
 
-# ── 테스트 1: find_equity ─────────────────────────────────────────────────────
-
-def make_financial_highlight_soup_with_colspan(year_to_equity: dict, annual_count: int = None):
-    """
-    FnGuide Financial Highlight 테이블 (colspan 포함).
-    rows[0]: IFRS(연결) colspan=1 | Annual colspan=N | Net Quarter colspan=4
-    rows[1]: 연도 헤더
-    """
-    years = sorted(year_to_equity.keys())
-    if annual_count is None:
-        annual_count = len(years)
-    year_header = "".join(f"<th>{y}</th>" for y in years)
-    equity_values = "".join(f"<td>{year_to_equity[y]:,}</td>" for y in years)
-    padding = "".join("<tr><td></td></tr>" for _ in range(20))
-    html = f"""
-    <html><body>
-    <table class="us_table_ty1">
-      <tr>
-        <th colspan="1">IFRS(연결)</th>
-        <th colspan="{annual_count}">Annual</th>
-        <th colspan="4">Net Quarter</th>
-      </tr>
-      <tr>{year_header}</tr>
-      <tr><td>지배주주지분</td>{equity_values}</tr>
-      {padding}
-    </table>
-    </body></html>
-    """
-    return BeautifulSoup(html, 'html.parser')
-
-
-def test_find_equity_returns_last_year_december_value_in_won():
-    """12월 결산 종목: 작년 12월 지배주주지분을 억원 → 원으로 변환하여 반환"""
-    fetcher = make_fetcher(year=2026)
-    soup = make_financial_highlight_soup_with_colspan({
-        '2023/12': 3_532_338,
-        '2024/12': 3_916_876,
-        '2025/12': 4_243_133,   # ← Annual 마지막 실제 연도
-    }, annual_count=3)
-
-    equity = fetcher.find_equity(soup, '005930')
-
-    assert equity == 4_243_133 * 1e8
-
-
-def test_find_equity_returns_latest_annual_for_non_december_fiscal_year():
-    """2월 결산 종목(950170 유형): Annual 섹션 마지막 실제 연도 컬럼 값을 반환"""
-    fetcher = make_fetcher(year=2026)
-    # '(P)...' 셀은 잠정실적 표시이므로 제외, '2025/02'가 최신 실제 값
-    soup = make_financial_highlight_soup_with_colspan({
-        '2023/02': 697,
-        '2024/02': 858,
-        '2025/02': 1_832,   # ← 이 값을 가져와야 함
-        '(P) : Provisional잠정실적2026/02(P)': 1_897,
-    }, annual_count=4)
-
-    equity = fetcher.find_equity(soup, '950170')
-
-    assert equity == 1_832 * 1e8
-
+# ── Snapshot HTML 파싱: 발행주식수 / 자사주 ──────────────────────────────────
 
 def test_find_issued_shares_returns_common_stock_count():
     """발행주식수(보통주) 값을 정수로 반환"""
@@ -166,40 +81,7 @@ def test_find_treasury_shares_returns_zero_silently_when_no_treasury_row():
     assert treasury == 0
 
 
-# ── 테스트 4: fetch() 통합 ────────────────────────────────────────────────────
-
-def make_combined_soup(equity_map, issued_common, issued_preferred, treasury):
-    """세 테이블을 하나의 HTML로 결합한 soup (실제 FnGuide 구조: colspan 포함)"""
-    years = sorted(equity_map.keys())
-    annual_count = len(years)
-    year_header = "".join(f"<th>{y}</th>" for y in years)
-    equity_values = "".join(f"<td>{equity_map[y]:,}</td>" for y in years)
-    padding = "".join("<tr><td></td></tr>" for _ in range(20))
-
-    html = f"""<html><body>
-    <!-- 시세현황 -->
-    <table class="us_table_ty1">
-      <tr><td>발행주식수(보통주/ 우선주)</td><td>{issued_common:,}/ {issued_preferred:,}</td></tr>
-    </table>
-    <!-- 주주구분 현황 -->
-    <table class="us_table_ty1">
-      <tr><th>주주구분</th><th>대표주주수</th><th>보통주</th><th>지분율</th></tr>
-      <tr><td>자기주식 (자사주+자사주신탁)</td><td>1</td><td>{treasury:,}</td><td>1.40</td></tr>
-    </table>
-    <!-- Financial Highlight (colspan으로 Annual 경계 명시) -->
-    <table class="us_table_ty1">
-      <tr>
-        <th colspan="1">IFRS(연결)</th>
-        <th colspan="{annual_count}">Annual</th>
-        <th colspan="4">Net Quarter</th>
-      </tr>
-      <tr>{year_header}</tr>
-      <tr><td>지배주주지분</td>{equity_values}</tr>
-      {padding}
-    </table>
-    </body></html>"""
-    return BeautifulSoup(html, 'html.parser')
-
+# ── run_from_roe_csv ────────────────────────────────────────────────────────
 
 def test_run_from_roe_csv_saves_fundamentals(tmp_path, monkeypatch):
     """ROE CSV에서 종목코드를 읽어 재무 데이터를 수집하고 output CSV에 저장한다"""
@@ -225,52 +107,6 @@ def test_run_from_roe_csv_saves_fundamentals(tmp_path, monkeypatch):
     assert set(result['종목코드'].tolist()) == {'005930', '035420'}
     assert '자본총계(원)' in result.columns
     assert '총주식수' in result.columns
-
-
-def make_annual_extended_soup(net_income_by_year: dict, equity_by_year: dict):
-    """
-    IFRS(연결) Annual 확장 테이블 모킹 (Net Quarter 없음, 미래 추정치 포함).
-    rows[0]: IFRS(연결) | Annual
-    rows[1]: 연도 헤더 (e.g. 2023/12 | 2024/12 | 2025/12 | 2026/12(E) | ...)
-    """
-    years = sorted(net_income_by_year.keys())
-    year_header = "".join(f"<th>{y}</th>" for y in years)
-    ni_values  = "".join(f"<td>{net_income_by_year[y]:,}</td>" for y in years)
-    eq_values  = "".join(f"<td>{equity_by_year[y]:,}</td>" for y in years)
-    padding = "".join("<tr><td></td></tr>" for _ in range(5))
-    html = f"""<html><body>
-    <table>
-      <tr><th colspan="1">IFRS(연결)</th><th colspan="{len(years)}">Annual</th></tr>
-      <tr>{year_header}</tr>
-      <tr><td>지배주주순이익</td>{ni_values}</tr>
-      <tr><td>지배주주지분</td>{eq_values}</tr>
-      {padding}
-    </table>
-    </body></html>"""
-    return BeautifulSoup(html, 'html.parser')
-
-
-def test_find_future_roe_calculates_from_last_two_estimates():
-    """
-    Annual 확장 테이블에서 마지막 추정치로 예상 ROE를 계산한다.
-    ROE = 지배주주순이익 / ((전기말_지배주주지분 + 당기말_지배주주지분) / 2) * 100
-    """
-    fetcher = make_fetcher(year=2026)
-    soup = make_annual_extended_soup(
-        net_income_by_year={
-            '2023/12': 144_734, '2024/12': 336_214, '2025/12': 442_610,
-            '2026/12(E)': 2_771_227, '2027/12(E)': 3_463_287, '2028/12(E)': 3_413_255,
-        },
-        equity_by_year={
-            '2023/12': 3_532_338, '2024/12': 3_916_876, '2025/12': 4_243_133,
-            '2026/12(E)': 6_826_716, '2027/12(E)': 9_981_304, '2028/12(E)': 13_223_566,
-        },
-    )
-
-    roe = fetcher.find_future_roe(soup, '005930')
-
-    expected = 3_413_255 / ((9_981_304 + 13_223_566) / 2) * 100
-    assert roe == pytest.approx(expected, rel=1e-3)
 
 
 # ── FnGuide 신버전 (Snapshot HTML + getSnpFinancial API) ─────────────────────

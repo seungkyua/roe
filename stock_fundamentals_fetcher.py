@@ -5,7 +5,6 @@ FnGuide에서 종목별 자본총계(지배주주지분)와 총주식수를 수�
 - 재무 API      : https://wcomp.fnguide.com/CompanyInfo/getSnpFinancial (지배주주지분, 예상 ROE)
 """
 
-import re
 import time
 import logging
 import warnings
@@ -58,69 +57,6 @@ class StockFundamentalsFetcher:
 
     # ── 파싱 메서드 ────────────────────────────────────────────────────────────
 
-    def find_equity(self, soup, stock_code: str) -> float:
-        """
-        Financial Highlight 표(IFRS연결 Annual+Net Quarter)에서
-        Annual 섹션의 가장 최신 실제 연도(YYYY/MM) 지배주주지분을 억원 → 원으로 변환.
-
-        FnGuide 테이블 구조:
-          rows[0]: IFRS(연결) colspan=1 | Annual colspan=N | Net Quarter colspan=M
-          rows[1]: 2023/12 | 2024/12 | 2025/12 | (E)... | 2025/06 | ...
-          data rows: 항목명 | 값1 | 값2 | ...  (셀[0]=항목, 셀[1+]=연도별 값)
-          → 연도 헤더 index i → 데이터 셀 index i+1
-
-        비12월 회계연도(2월, 3월 등) 종목도 올바르게 처리.
-        Annual 섹션에서 마지막 YYYY/MM 형식 셀 = 최신 실제 연간 실적.
-        """
-        for table in soup.find_all('table'):
-            rows = table.find_all('tr')
-            if len(rows) < 3:
-                continue
-
-            header_cells = rows[0].find_all(['td', 'th'])
-            header_texts = [c.get_text(strip=True) for c in header_cells]
-            if 'IFRS(연결)' not in header_texts or 'Annual' not in header_texts:
-                continue
-
-            # Annual 섹션 크기를 colspan으로 결정
-            annual_count = 0
-            for cell in header_cells:
-                if cell.get_text(strip=True) == 'Annual':
-                    annual_count = int(cell.get('colspan', 1))
-                    break
-
-            # Annual 섹션 연도 셀에서 YYYY/MM 형식만 추출 (E/P 표시 셀 제외)
-            all_year_cells = rows[1].find_all(['td', 'th'])
-            annual_year_cells = all_year_cells[:annual_count]
-            actual_years = [
-                (i, c.get_text(strip=True))
-                for i, c in enumerate(annual_year_cells)
-                if re.match(r'^\d{4}/\d{2}$', c.get_text(strip=True))
-            ]
-
-            if not actual_years:
-                continue
-
-            # 마지막 실제 연도 = 최신 연간 실적
-            year_idx, year_text = actual_years[-1]
-            data_col_idx = year_idx + 1  # 데이터행 셀[0]이 항목명이므로 +1
-
-            logger.info(f"{stock_code}: 사용할 연간 컬럼 = {year_text} (데이터 idx={data_col_idx})")
-
-            for row in rows[2:]:
-                cells = row.find_all(['td', 'th'])
-                if not cells:
-                    continue
-                if cells[0].get_text(strip=True) == '지배주주지분':
-                    if len(cells) > data_col_idx:
-                        val_str = cells[data_col_idx].get_text(strip=True).replace(',', '')
-                        if val_str and re.match(r'^-?\d+(\.\d+)?$', val_str):
-                            return float(val_str) * 1e8  # 억원 → 원
-            break
-
-        logger.warning(f"{stock_code}: 지배주주지분 값을 찾지 못했습니다.")
-        return 0.0
-
     def find_issued_shares(self, soup) -> int:
         """시세현황 표에서 발행주식수(보통주) 반환"""
         for table in soup.find_all('table'):
@@ -151,73 +87,6 @@ class StockFundamentalsFetcher:
                     if val.isdigit():
                         return int(val)
         return 0
-
-    def find_future_roe(self, soup, stock_code: str) -> float:
-        """
-        IFRS(연결) Annual 확장 테이블(Net Quarter 없음)에서 미래 예상 ROE 계산.
-
-        SVD_Main 페이지의 테이블11이 이 구조에 해당하며,
-        컨센서스 추정치(E) 포함 최대 8개 연간 컬럼을 제공한다.
-
-        계산:
-          지배주주순이익 = 마지막 추정 컬럼
-          전기말 지배주주지분 = 마지막-1 컬럼
-          당기말 지배주주지분 = 마지막 컬럼
-          예상ROE(%) = 지배주주순이익 / ((전기말 + 당기말) / 2) * 100
-        """
-        for table in soup.find_all('table'):
-            rows = table.find_all('tr')
-            if len(rows) < 3:
-                continue
-
-            header_cells = rows[0].find_all(['td', 'th'])
-            header_texts = [c.get_text(strip=True) for c in header_cells]
-
-            # IFRS(연결) Annual 테이블이되 Net Quarter 가 없는 것 (table 11)
-            if 'IFRS(연결)' not in header_texts or 'Annual' not in header_texts:
-                continue
-            if 'Net Quarter' in header_texts:
-                continue
-
-            net_income = None
-            prev_equity = None
-            curr_equity = None
-
-            for row in rows[2:]:
-                cells = row.find_all(['td', 'th'])
-                if not cells:
-                    continue
-                label = cells[0].get_text(strip=True)
-
-                if label == '지배주주순이익' and net_income is None:
-                    # 마지막 셀 = 가장 미래 추정치
-                    val = cells[-1].get_text(strip=True).replace(',', '')
-                    if val and re.match(r'^-?\d+(\.\d+)?$', val):
-                        net_income = float(val)
-
-                elif label == '지배주주지분' and prev_equity is None:
-                    valid_vals = [
-                        float(c.get_text(strip=True).replace(',', ''))
-                        for c in cells[1:]
-                        if re.match(r'^-?\d+(\.\d+)?$', c.get_text(strip=True).replace(',', ''))
-                    ]
-                    if len(valid_vals) >= 2:
-                        prev_equity = valid_vals[-2]  # 전기말
-                        curr_equity = valid_vals[-1]  # 당기말
-
-            if net_income and prev_equity and curr_equity:
-                avg_equity = (prev_equity + curr_equity) / 2
-                if avg_equity > 0:
-                    roe = net_income / avg_equity * 100
-                    logger.info(
-                        f"{stock_code}: 예상ROE={roe:.2f}% "
-                        f"(순이익={net_income:,.0f}, 평균자기자본={avg_equity:,.0f})"
-                    )
-                    return round(roe, 2)
-            break
-
-        logger.warning(f"{stock_code}: 예상 ROE를 계산할 수 없습니다.")
-        return 0.0
 
     @staticmethod
     def _actual_columns(dataset):
